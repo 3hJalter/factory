@@ -1,0 +1,6 @@
+node_modules/
+web/dist/
+*.log
+.DS_Store
+# Dữ liệu chạy của nhà máy nằm ở %APPDATA%\factory, không nằm trong repo.
+.factory-home/
