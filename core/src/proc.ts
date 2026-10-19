@@ -235,16 +235,30 @@ async function windowsDescendants(rootPid: number, startedAt: number): Promise<n
     "}",
     "$found -join ','",
   ].join("\n");
+  // -EncodedCommand (UTF-16LE, base64) tránh mọi vấn đề trích dẫn dòng lệnh của Windows.
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
   const out = await new Promise<string>((resolve) => {
     let text = "";
-    const p = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-      stdio: ["ignore", "pipe", "ignore"],
+    let errText = "";
+    const p = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
+    const timer = setTimeout(() => p.kill(), 30_000);
     p.stdout?.setEncoding("utf8");
     p.stdout?.on("data", (d: string) => (text += d));
-    p.once("error", () => resolve(""));
-    p.once("exit", () => resolve(text));
+    p.stderr?.setEncoding("utf8");
+    p.stderr?.on("data", (d: string) => (errText += d));
+    p.once("error", () => {
+      clearTimeout(timer);
+      resolve("");
+    });
+    // Chờ `close` (không phải `exit`) để đọc hết đầu ra; PowerShell không để lại tiến trình con giữ ống.
+    p.once("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0) process.stderr.write(`factory: không liệt kê được tiến trình con (powershell thoát ${code}): ${errText.trim()}\n`);
+      resolve(text);
+    });
   });
   return out
     .trim()
