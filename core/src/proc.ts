@@ -195,9 +195,10 @@ function groupAlive(pid: number): boolean {
 
 async function cleanupLeftovers(pid: number, startedAt: number): Promise<number> {
   if (isWindows) {
-    const leftovers = await windowsDescendants(pid, startedAt);
-    for (const p of leftovers) await runTaskkill(p);
-    return leftovers.length;
+    const { pids, error } = await windowsDescendants(pid, startedAt);
+    if (error) process.stderr.write(`factory: không liệt kê được tiến trình con: ${error}\n`);
+    for (const p of pids) await runTaskkill(p);
+    return pids.length;
   }
   if (!groupAlive(pid)) return 0;
   // Không biết chính xác số tiến trình trong nhóm mà không đọc /proc; đếm là 1 nhóm.
@@ -219,7 +220,7 @@ async function runTaskkill(pid: number): Promise<void> {
  * Trên Windows, tiến trình mồ côi vẫn giữ ParentProcessId của cha đã thoát.
  * Tìm theo cây từ pid gốc, chỉ lấy tiến trình tạo sau khi lệnh bắt đầu để tránh nhầm pid bị dùng lại.
  */
-async function windowsDescendants(rootPid: number, startedAt: number): Promise<number[]> {
+export async function windowsDescendants(rootPid: number, startedAt: number): Promise<{ pids: number[]; error?: string }> {
   const since = new Date(startedAt - 2000).toISOString();
   const script = [
     `$since = [datetime]::Parse('${since}').ToUniversalTime()`,
@@ -237,32 +238,38 @@ async function windowsDescendants(rootPid: number, startedAt: number): Promise<n
   ].join("\n");
   // -EncodedCommand (UTF-16LE, base64) tránh mọi vấn đề trích dẫn dòng lệnh của Windows.
   const encoded = Buffer.from(script, "utf16le").toString("base64");
-  const out = await new Promise<string>((resolve) => {
+  const out = await new Promise<{ text: string; error?: string }>((resolve) => {
     let text = "";
     let errText = "";
-    const p = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
+    let p: ChildProcess;
+    try {
+      p = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+    } catch (err) {
+      resolve({ text: "", error: String(err) });
+      return;
+    }
     const timer = setTimeout(() => p.kill(), 30_000);
     p.stdout?.setEncoding("utf8");
     p.stdout?.on("data", (d: string) => (text += d));
     p.stderr?.setEncoding("utf8");
     p.stderr?.on("data", (d: string) => (errText += d));
-    p.once("error", () => {
+    p.once("error", (err) => {
       clearTimeout(timer);
-      resolve("");
+      resolve({ text: "", error: `không chạy được powershell.exe: ${err.message}` });
     });
     // Chờ `close` (không phải `exit`) để đọc hết đầu ra; PowerShell không để lại tiến trình con giữ ống.
     p.once("close", (code) => {
       clearTimeout(timer);
-      if (code !== 0) process.stderr.write(`factory: không liệt kê được tiến trình con (powershell thoát ${code}): ${errText.trim()}\n`);
-      resolve(text);
+      resolve({ text, error: code === 0 ? undefined : `powershell thoát ${code}: ${errText.trim()}` });
     });
   });
-  return out
+  const pids = out.text
     .trim()
     .split(",")
     .map((s) => Number(s))
     .filter((n) => Number.isInteger(n) && n > 0);
+  return { pids, error: out.error };
 }

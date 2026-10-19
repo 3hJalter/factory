@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { runProcess } from "../src/index.ts";
+import { runProcess, windowsDescendants } from "../src/index.ts";
 
 const node = process.execPath;
 
@@ -40,7 +41,7 @@ test("không treo khi tiến trình cháu còn giữ ống stdout, và dọn ti�
   const elapsed = Date.now() - started;
   assert.equal(r.code, 0);
   assert.ok(elapsed < 5000, `mất ${elapsed} ms, lẽ ra phải xong ngay`);
-  assert.equal(r.cleanedUp, 1);
+  assert.equal(r.cleanedUp, 1, `dọn ${r.cleanedUp} tiến trình sau ${r.durationMs} ms; stderr: ${r.stderr}`);
 
   const pid = Number(/chau=(\d+)/.exec(r.stdout)?.[1]);
   assert.ok(pid > 0);
@@ -63,6 +64,21 @@ function isAlive(pid: number): boolean {
     return false;
   }
 }
+
+test("Windows: liệt kê được tiến trình con của một tiến trình đang chạy", { skip: process.platform !== "win32" }, async () => {
+  const { spawn } = await import("node:child_process");
+  const started = Date.now();
+  const parent = spawn(node, ["-e", "require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 30000)'], { stdio: 'ignore' }); setTimeout(()=>{}, 30000)"], { stdio: "ignore" });
+  try {
+    await new Promise((res) => setTimeout(res, 1500));
+    const t0 = Date.now();
+    const { pids, error } = await windowsDescendants(parent.pid!, started);
+    assert.equal(error, undefined);
+    assert.equal(pids.length, 1, `tìm thấy ${JSON.stringify(pids)} sau ${Date.now() - t0} ms`);
+  } finally {
+    spawnSync("taskkill", ["/PID", String(parent.pid), "/T", "/F"]);
+  }
+});
 
 test("quá thời gian thì kill cả cây và báo timedOut", async () => {
   const r = await runProcess(node, ["-e", "setTimeout(()=>{}, 60000)"], { timeoutMs: 300 });
