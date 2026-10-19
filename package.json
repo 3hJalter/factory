@@ -1,0 +1,31 @@
+{
+  "name": "factory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nhà máy vibe code: chạy Claude Code và Codex trên dự án của bạn, quản lý bằng task và GitHub.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "workspaces": [
+    "core",
+    "server",
+    "web",
+    "pack-kit"
+  ],
+  "bin": {
+    "factory": "server/bin/factory.ts"
+  },
+  "scripts": {
+    "factory": "node server/bin/factory.ts",
+    "build": "npm run build --workspace web",
+    "dev:web": "npm run dev --workspace web",
+    "serve": "node server/bin/factory.ts serve",
+    "test": "node --test --disable-warning=ExperimentalWarning \"core/test/*.test.ts\" \"server/test/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}
