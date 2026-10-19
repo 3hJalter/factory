@@ -30,9 +30,15 @@ test("lệnh không có trên máy trả về ENOENT", async () => {
 
 test("không treo khi tiến trình cháu còn giữ ống stdout, và dọn tiến trình cháu", async () => {
   // Tiến trình cha bật một tiến trình cháu ngủ 30 giây, cháu thừa hưởng stdout, rồi cha thoát ngay.
+  // Trên Windows, Node tự kill tiến trình con không detached khi cha thoát (job object của libuv),
+  // nên cháu phải detached mới sống sót, giống daemon thật (VBCSCompiler, Gradle).
+  // Trên Linux/macOS, detached tách cháu khỏi nhóm tiến trình nên để mặc định.
   const parent = `
     const { spawn } = require('node:child_process');
-    const c = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 30000)'], { stdio: ['ignore', 'inherit', 'inherit'] });
+    const c = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 30000)'], {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      detached: process.platform === 'win32',
+    });
     console.log('chau=' + c.pid);
     process.exit(0);
   `;
