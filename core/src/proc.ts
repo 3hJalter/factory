@@ -1,4 +1,4 @@
-import type { ChildProcess } from "node:child_process";
+import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import spawn from "cross-spawn";
 
@@ -30,6 +30,16 @@ export interface RunOptions {
   drainMs?: number;
 }
 
+/**
+ * Chạy một dòng lệnh do người dùng ghi (VD lệnh `check` của mặt) qua shell của hệ thống:
+ * `sh -c` trên Linux/macOS, `cmd.exe /d /s /c` trên Windows.
+ */
+export function runShell(commandLine: string, opts: RunOptions = {}): Promise<ProcessResult> {
+  return isWindows
+    ? runProcess(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${commandLine}"`], { ...opts, verbatim: true })
+    : runProcess("/bin/sh", ["-c", commandLine], opts);
+}
+
 export interface ProcessResult {
   /** Mã thoát; null nếu bị kill hoặc không chạy được. */
   code: number | null;
@@ -48,7 +58,11 @@ export interface ProcessResult {
 
 const isWindows = process.platform === "win32";
 
-export async function runProcess(command: string, args: readonly string[] = [], opts: RunOptions = {}): Promise<ProcessResult> {
+export async function runProcess(
+  command: string,
+  args: readonly string[] = [],
+  opts: RunOptions & { verbatim?: boolean } = {},
+): Promise<ProcessResult> {
   const started = Date.now();
   const maxOutput = opts.maxOutput ?? 1_000_000;
   const cleanup = opts.cleanup ?? true;
@@ -59,11 +73,14 @@ export async function runProcess(command: string, args: readonly string[] = [], 
 
   let child: ChildProcess;
   try {
-    child = spawn(command, [...args], {
+    // Lệnh shell trên Windows đã tự trích dẫn; đi thẳng node:child_process để cross-spawn không trích lần nữa.
+    const spawner = opts.verbatim ? nodeSpawn : spawn;
+    child = spawner(command, [...args], {
       cwd: opts.cwd,
       env: opts.env,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
+      windowsVerbatimArguments: opts.verbatim,
       // Trên Linux/macOS: nhóm tiến trình riêng để dọn được cả cây bằng kill(-pid).
       detached: !isWindows,
     });

@@ -127,6 +127,42 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX event_task ON event(task_id, id);
   `,
+  // M2: tạo dự án và thêm khu vực (luong-onboarding.md mục 6).
+  `
+  ALTER TABLE project ADD COLUMN base_branch TEXT;
+  ALTER TABLE project ADD COLUMN config TEXT NOT NULL DEFAULT '{}';  -- JSON ProjectConfig nhà máy đang dùng
+
+  -- Một bản ghi cho phần A của mỗi dự án (surface_id NULL) và một bản cho mỗi lần thêm khu vực.
+  CREATE TABLE onboarding (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    surface_id TEXT,
+    step       TEXT NOT NULL,                 -- A1..A4, B1..B9
+    status     TEXT NOT NULL CHECK (status IN ('running', 'waiting_you', 'done', 'failed')),
+    data       TEXT NOT NULL DEFAULT '{}',    -- JSON: phát hiện, cổng đang chờ, kết quả
+    error      TEXT,
+    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  CREATE INDEX onboarding_project ON onboarding(project_id, surface_id, id);
+
+  -- Kết quả chạy lệnh chuẩn của khu vực (mốc chuẩn B7, hoặc kiểm từ factory doctor).
+  CREATE TABLE command_result (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    surface_id TEXT NOT NULL,
+    purpose    TEXT NOT NULL CHECK (purpose IN ('baseline', 'doctor')),
+    command    TEXT NOT NULL,                 -- provision | check | test
+    run        TEXT NOT NULL,                 -- dòng lệnh đã chạy
+    ok         INTEGER NOT NULL,
+    exit_code  INTEGER,
+    timed_out  INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL,
+    output     TEXT NOT NULL DEFAULT '',      -- phần cuối đầu ra
+    ran_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  CREATE INDEX command_result_surface ON command_result(project_id, surface_id, id);
+  `,
 ];
 
 export type Db = DatabaseSync;
