@@ -11,3 +11,4 @@ export * from "./projects.ts";
 export * from "./scaffold.ts";
 export * from "./scan.ts";
 export * from "./store.ts";
+export * from "./tasks.ts";
