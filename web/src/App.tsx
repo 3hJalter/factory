@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   api,
   useLoad,
@@ -95,11 +95,19 @@ export function App() {
   const reloadOverview = overview.reload;
   const [logs, setLogs] = useState<Record<string, string[]>>({});
   const [tick, setTick] = useState(0);
+  const doctorRef = useRef(doctor);
+  doctorRef.current = doctor;
 
   const connection = useServerEvents(
     useCallback(
       (e) => {
-        if (e.type === "hello") return;
+        if (e.type === "hello") {
+          // Nối (lại) được server: tải lại những gì có thể đã hỏng khi server chưa chạy.
+          setTick((t) => t + 1);
+          reloadOverview();
+          if (doctorRef.current.error) doctorRef.current.reload();
+          return;
+        }
         if (e.type === "project.log") {
           const { projectId, message } = e.payload as { projectId: string | null; message: string };
           const key = projectId ?? NEW_KEY;
@@ -284,7 +292,7 @@ function OverviewPage(props: { overview: Loaded<OverviewResponse>; doctor: Loade
           </a>
         </div>
         {overview.error ? (
-          <p className="error">Không đọc được danh sách dự án: {overview.error}</p>
+          <p className="error">Không đọc được danh sách dự án: {withCode(overview.error)}</p>
         ) : overview.data && overview.data.projects.length > 0 ? (
           <ul className="projects">
             {overview.data.projects.map((p) => (
@@ -325,7 +333,7 @@ function OverviewPage(props: { overview: Loaded<OverviewResponse>; doctor: Loade
             {doctor.loading ? "Đang kiểm tra…" : "Kiểm tra lại"}
           </button>
         </div>
-        {doctor.error && <p className="error">Không chạy được kiểm tra: {doctor.error}</p>}
+        {doctor.error && <p className="error">Không chạy được kiểm tra: {withCode(doctor.error)}</p>}
         {doctor.data && (
           <ul className="checks">
             {doctor.data.checks.map((c) => (

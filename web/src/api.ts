@@ -104,6 +104,10 @@ async function toError(path: string, res: Response): Promise<ApiError> {
   } catch {
     // Không phải JSON.
   }
+  // Vite trả 502 khi không nối được server nhà máy phía sau (`npm run dev:web` không tự bật server).
+  if (res.status >= 502 && res.status <= 504 && body.error === undefined) {
+    return new ApiError(res.status, "Server nhà máy chưa chạy. Mở thêm một cửa sổ terminal trong thư mục repo rồi chạy `npm run serve`", body);
+  }
   const message = typeof body.error === "string" && body.error !== "not_found" ? body.error : `${path} trả về ${res.status}`;
   return new ApiError(res.status, message, body);
 }

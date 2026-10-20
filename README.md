@@ -86,7 +86,7 @@ Với repo đã có git, nhà máy thêm khung (`.factory/project.yaml`, `AGENTS
 | `npm test` | Test của core và server (`node --test`) |
 | `npm run typecheck` | Kiểm kiểu toàn bộ, gồm cả web |
 | `npm run serve` | Server ở cổng 7319 |
-| `npm run dev:web` | Vite ở cổng 5173, chuyển `/api` và `/ws` sang server |
+| `npm run dev:web` | Vite ở cổng 5173, chuyển `/api` và `/ws` sang server. Cần chạy `npm run serve` ở một cửa sổ khác |
 
 Cấu trúc:
 
