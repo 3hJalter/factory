@@ -166,8 +166,8 @@ const MIGRATIONS: string[] = [
   // M3: task, bình luận và đồng bộ với GitHub Issues (may-trang-thai-ticket.md mục 8).
   `
   ALTER TABLE task ADD COLUMN gate TEXT;                          -- cổng đang chờ ở proposed / waiting_*
-  ALTER TABLE task ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0;   -- 1: có thay đổi chưa đẩy lên Issue
-  ALTER TABLE task ADD COLUMN issue_updated_at TEXT;              -- updated_at của Issue ở lần đồng bộ cuối
+  ALTER TABLE task ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0;   -- tăng mỗi lần đổi tại chỗ; 0: Issue đã khớp
+  ALTER TABLE task ADD COLUMN synced TEXT;                        -- JSON: Issue lúc đồng bộ cuối, làm gốc so ba bên
   ALTER TABLE task ADD COLUMN synced_at TEXT;
   CREATE UNIQUE INDEX task_issue ON task(project_id, github_issue) WHERE github_issue IS NOT NULL;
 

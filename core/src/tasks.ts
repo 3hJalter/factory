@@ -66,8 +66,8 @@ export interface TaskRow {
   githubIssue: number | null;
   surfaces: string[];
   dependsOn: number[];
+  /** Có thay đổi tại chỗ chưa đẩy lên Issue. */
   dirty: boolean;
-  issueUpdatedAt: string | null;
   syncedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -110,7 +110,10 @@ export interface NewTask {
   dependsOn?: number[];
   /** Tạo từ một Issue có sẵn trên GitHub. */
   githubIssue?: number;
-  issueUpdatedAt?: string;
+  /** Issue lúc nhận về, làm gốc cho lần đồng bộ sau. */
+  synced?: unknown;
+  /** Issue đã đóng thì task nhận về ở trạng thái kết thúc. */
+  closedAs?: "done" | "rejected" | "cancelled";
   /** Issue thiếu label khu vực hoặc loại: vào `proposed` để bạn xác nhận (mục 8). */
   propose?: boolean;
   by?: string;
@@ -130,15 +133,15 @@ export function createTask(db: Db, projectId: string, input: NewTask): TaskRow {
   for (const d of deps) mustTask(db, d, projectId);
   if (input.parentId !== undefined) mustTask(db, input.parentId, projectId);
 
-  const proposed = input.propose || origin === "agent" || origin === "links";
-  const blocked = !proposed && unfinishedDeps(db, deps).length > 0;
-  const status: TaskStatus = proposed ? "proposed" : blocked ? "blocked" : "queued";
+  const proposed = !input.closedAs && (input.propose || origin === "agent" || origin === "links");
+  const blocked = !input.closedAs && !proposed && unfinishedDeps(db, deps).length > 0;
+  const status: TaskStatus = input.closedAs ?? (proposed ? "proposed" : blocked ? "blocked" : "queued");
 
   db.exec("BEGIN");
   try {
     const r = db
       .prepare(
-        `INSERT INTO task (project_id, kind, status, blocked_reason, title, body, parent_id, origin, executor, gate, github_issue, issue_updated_at, dirty, synced_at)
+        `INSERT INTO task (project_id, kind, status, blocked_reason, title, body, parent_id, origin, executor, gate, github_issue, synced, dirty, synced_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
@@ -153,7 +156,7 @@ export function createTask(db: Db, projectId: string, input: NewTask): TaskRow {
         executor,
         proposed ? "accept_task" : null,
         input.githubIssue ?? null,
-        input.issueUpdatedAt ?? null,
+        input.synced === undefined ? null : JSON.stringify(input.synced),
         input.githubIssue ? 0 : 1,
         input.githubIssue ? new Date().toISOString() : null,
       );
@@ -218,8 +221,7 @@ function toTask(db: Db, r: Record<string, unknown>): TaskRow {
     githubIssue: issue,
     surfaces: (db.prepare("SELECT surface_id FROM task_surface WHERE task_id = ? ORDER BY surface_id").all(id) as { surface_id: string }[]).map((s) => s.surface_id),
     dependsOn: (db.prepare("SELECT depends_on FROM task_dependency WHERE task_id = ? ORDER BY depends_on").all(id) as { depends_on: number }[]).map((d) => Number(d.depends_on)),
-    dirty: Number(r.dirty) === 1,
-    issueUpdatedAt: (r.issue_updated_at as string | null) ?? null,
+    dirty: Number(r.dirty) > 0,
     syncedAt: (r.synced_at as string | null) ?? null,
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
@@ -251,7 +253,7 @@ export function transition(db: Db, id: number, to: TaskStatus, opts: TransitionO
   if (to === "blocked" && !opts.blockedReason) throw new TaskError("Chuyển sang blocked cần lý do");
   const gate = opts.gate !== undefined ? opts.gate : to === "proposed" ? "accept_task" : to === "waiting_answer" ? "answer_questions" : null;
   db.prepare(
-    `UPDATE task SET status = ?, blocked_reason = ?, stuck_reason = ?, gate = ?, dirty = 1, updated_at = ${NOW} WHERE id = ?`,
+    `UPDATE task SET status = ?, blocked_reason = ?, stuck_reason = ?, gate = ?, dirty = dirty + 1, updated_at = ${NOW} WHERE id = ?`,
   ).run(to, to === "blocked" ? opts.blockedReason! : null, to === "stuck" ? (opts.stuckReason ?? opts.reason ?? null) : null, gate, id);
   recordEvent(db, {
     type: "task.transition",
@@ -344,11 +346,11 @@ export function editTask(db: Db, id: number, edit: TaskEdit, opts: { fromIssue?:
 
   db.exec("BEGIN");
   try {
-    db.prepare(`UPDATE task SET title = ?, body = ?, kind = ?, dirty = ?, updated_at = ${NOW} WHERE id = ?`).run(
+    db.prepare(`UPDATE task SET title = ?, body = ?, kind = ?, dirty = dirty + ?, updated_at = ${NOW} WHERE id = ?`).run(
       title,
       edit.body ?? task.body,
       kind,
-      opts.fromIssue ? (task.dirty ? 1 : 0) : 1,
+      opts.fromIssue ? 0 : 1,
       id,
     );
     if (edit.surfaces !== undefined) setSurfaces(db, id, task.projectId, surfaces);
@@ -392,6 +394,11 @@ function createsCycle(db: Db, id: number, deps: number[]): boolean {
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
+/** Đánh dấu task cần đẩy lên Issue ở lần đồng bộ sau. */
+export function markDirty(db: Db, taskId: number): void {
+  db.prepare("UPDATE task SET dirty = dirty + 1 WHERE id = ?").run(taskId);
+}
+
 // ───────── Bình luận ─────────
 
 export function addComment(db: Db, taskId: number, c: { author: string; body: string; githubId?: number; createdAt?: string; updatedAt?: string }): TaskComment {
@@ -399,7 +406,7 @@ export function addComment(db: Db, taskId: number, c: { author: string; body: st
   const r = db
     .prepare(`INSERT INTO task_comment (task_id, github_id, author, body, created_at, updated_at) VALUES (?, ?, ?, ?, COALESCE(?, ${NOW}), COALESCE(?, ${NOW}))`)
     .run(taskId, c.githubId ?? null, c.author, c.body, c.createdAt ?? null, c.updatedAt ?? null);
-  if (c.githubId === undefined) db.prepare("UPDATE task SET dirty = 1 WHERE id = ?").run(taskId);
+  if (c.githubId === undefined) markDirty(db, taskId);
   recordEvent(db, { type: "task.comment", projectId: task.projectId, taskId, payload: { author: c.author, fromIssue: c.githubId !== undefined } });
   return listComments(db, taskId).find((x) => x.id === Number(r.lastInsertRowid))!;
 }
