@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   api,
   useLoad,
@@ -8,7 +8,9 @@ import {
   type DoctorReport,
   type Loaded,
   type OverviewResponse,
+  type SurfaceRow,
 } from "./api.ts";
+import { NEW_PROJECT_PATH, newSurfacePath, NewProjectPage, NewSurfacePage, projectPath, ProjectPage, withCode, type LinkTo } from "./projects.tsx";
 
 interface Route {
   path: string;
@@ -40,7 +42,7 @@ const FACTORY_ROUTES: Route[] = [
     path: "/bo-nho",
     label: "Bộ nhớ",
     title: "Bộ nhớ",
-    intro: "Những gì agent ghi nhớ giữa các task, gắn theo dự án và mặt.",
+    intro: "Những gì agent ghi nhớ giữa các task, gắn theo dự án và khu vực.",
   },
 ];
 
@@ -51,6 +53,25 @@ const COMING: Record<string, string> = {
   "/bo-nho": "Bộ nhớ có từ M8, khi gắn Engram.",
 };
 
+/** Màn của một dự án, đọc từ đường dẫn. */
+type ProjectView = { kind: "new-project" } | { kind: "project"; id: string } | { kind: "new-surface"; id: string };
+
+function projectView(path: string): ProjectView | undefined {
+  if (path === NEW_PROJECT_PATH) return { kind: "new-project" };
+  const m = /^\/du-an\/([^/]+)(\/khu-vuc\/moi)?\/?$/.exec(path);
+  if (!m) return undefined;
+  const id = decodeURIComponent(m[1]!);
+  return m[2] ? { kind: "new-surface", id } : { kind: "project", id };
+}
+
+const NEW_KEY = "_new";
+const MAX_LOG = 200;
+
+/** Cuộn tới phần tử trong `#...` của địa chỉ, nếu đã có trên trang. */
+function scrollToHash(): void {
+  if (location.hash) requestAnimationFrame(() => document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView({ block: "start" }));
+}
+
 function usePath(): [string, (to: string) => void] {
   const [path, setPath] = useState(location.pathname);
   useEffect(() => {
@@ -59,9 +80,10 @@ function usePath(): [string, (to: string) => void] {
     return () => removeEventListener("popstate", onPop);
   }, []);
   const go = useCallback((to: string) => {
-    if (to === location.pathname) return;
+    if (to === location.pathname + location.hash) return;
     history.pushState(null, "", to);
-    setPath(to);
+    setPath(location.pathname);
+    scrollToHash();
   }, []);
   return [path, go];
 }
@@ -71,20 +93,48 @@ export function App() {
   const overview = useLoad(() => api.overview());
   const doctor = useLoad((again) => api.doctor(again));
   const reloadOverview = overview.reload;
+  const [logs, setLogs] = useState<Record<string, string[]>>({});
+  const [tick, setTick] = useState(0);
+  const doctorRef = useRef(doctor);
+  doctorRef.current = doctor;
 
   const connection = useServerEvents(
     useCallback(
       (e) => {
-        if (e.type !== "hello") reloadOverview();
+        if (e.type === "hello") {
+          // Nối (lại) được server: tải lại những gì có thể đã hỏng khi server chưa chạy.
+          setTick((t) => t + 1);
+          reloadOverview();
+          if (doctorRef.current.error) doctorRef.current.reload();
+          return;
+        }
+        if (e.type === "project.log") {
+          const { projectId, message } = e.payload as { projectId: string | null; message: string };
+          const key = projectId ?? NEW_KEY;
+          setLogs((all) => ({ ...all, [key]: [...(all[key] ?? []), message].slice(-MAX_LOG) }));
+          return;
+        }
+        if (e.type === "project.changed") setTick((t) => t + 1);
+        reloadOverview();
       },
       [reloadOverview],
     ),
   );
 
-  const route = FACTORY_ROUTES.find((r) => r.path === path) ?? FACTORY_ROUTES[0]!;
+  const view = projectView(path);
+  const projects = overview.data?.projects ?? [];
+  const currentId = view && view.kind !== "new-project" ? view.id : undefined;
+  const current = projects.find((p) => p.id === currentId);
+  const route: Route = view
+    ? view.kind === "new-project"
+      ? { path, label: "", title: "Dự án mới", intro: "Chọn repo chính, nhà máy kiểm rồi thêm khung. Chưa có gì lên GitHub cho tới khi bạn duyệt." }
+      : view.kind === "new-surface"
+        ? { path, label: "", title: "Thêm khu vực", intro: `Một thư mục trong ${current?.name ?? view.id} mà agent sẽ làm việc, kèm lệnh để kiểm việc đó.` }
+        : { path, label: "", title: current?.name ?? view.id, intro: "Khu vực, mốc chuẩn và các bước đưa dự án vào nhà máy." }
+    : (FACTORY_ROUTES.find((r) => r.path === path) ?? FACTORY_ROUTES[0]!);
   useEffect(() => {
     document.title = route.path === "/" ? "Factory" : `${route.title} · Factory`;
-  }, [route]);
+  }, [route.path, route.title]);
 
   const link = (to: string) => (e: MouseEvent) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
@@ -94,7 +144,7 @@ export function App() {
 
   return (
     <div className="app">
-      <TopBar overview={overview.data} connection={connection} link={link} />
+      <TopBar overview={overview.data} connection={connection} link={link} go={go} currentId={currentId} />
       <div className="body">
         <nav className="sidebar" aria-label="Điều hướng chính">
           <NavGroup title="NHÀ MÁY">
@@ -113,8 +163,14 @@ export function App() {
               </a>
             ))}
           </NavGroup>
-          <NavGroup title="MẶT">
-            <p className="nav-empty">Chưa có dự án nào nên chưa có mặt. Tạo dự án và thêm mặt có từ M2.</p>
+          <NavGroup title="KHU VỰC">
+            {currentId ? (
+              <SurfaceNav id={currentId} tick={tick} link={link} path={path} />
+            ) : projects.length > 0 ? (
+              <p className="nav-empty">Chọn một dự án để thấy khu vực của nó.</p>
+            ) : (
+              <p className="nav-empty">Chưa có dự án nào nên chưa có khu vực.</p>
+            )}
           </NavGroup>
           <div className="sidebar-foot">
             <label className="switch" title="Bật được khi có hàng đợi task (M3)">
@@ -129,8 +185,14 @@ export function App() {
               <h1>{route.title}</h1>
               <p>{route.intro}</p>
             </header>
-            {route.path === "/" ? (
-              <OverviewPage overview={overview} doctor={doctor} />
+            {view?.kind === "new-project" ? (
+              <NewProjectPage go={go} log={logs[NEW_KEY] ?? []} />
+            ) : view?.kind === "project" ? (
+              <ProjectPage key={view.id} id={view.id} tick={tick} log={logs[view.id] ?? []} link={link} />
+            ) : view?.kind === "new-surface" ? (
+              <NewSurfacePage key={view.id} id={view.id} go={go} />
+            ) : route.path === "/" ? (
+              <OverviewPage overview={overview} doctor={doctor} link={link} />
             ) : (
               <section className="card empty">{COMING[route.path]}</section>
             )}
@@ -144,7 +206,9 @@ export function App() {
 function TopBar(props: {
   overview: OverviewResponse | undefined;
   connection: Connection;
-  link: (to: string) => (e: MouseEvent) => void;
+  link: LinkTo;
+  go: (to: string) => void;
+  currentId: string | undefined;
 }) {
   const projects = props.overview?.projects ?? [];
   const inbox = props.overview?.inbox ?? 0;
@@ -155,11 +219,23 @@ function TopBar(props: {
         Factory
       </a>
       <div className="topbar-project">
-        <select aria-label="Chọn dự án" disabled={projects.length === 0}>
+        <select
+          aria-label="Chọn dự án"
+          disabled={projects.length === 0}
+          value={props.currentId ?? ""}
+          onChange={(e) => props.go(e.target.value ? projectPath(e.target.value) : "/")}
+        >
           {projects.length === 0 ? (
-            <option>Chưa có dự án</option>
+            <option value="">Chưa có dự án</option>
           ) : (
-            projects.map((p) => <option key={p.id}>{p.name}</option>)
+            <>
+              <option value="">Mọi dự án</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </>
           )}
         </select>
         <ConnectionDot state={props.connection} />
@@ -198,23 +274,38 @@ function ConnectionDot({ state }: { state: Connection }) {
   );
 }
 
-function OverviewPage(props: { overview: Loaded<OverviewResponse>; doctor: Loaded<DoctorReport> }) {
-  const { overview, doctor } = props;
+const SETUP_TEXT: Record<string, string> = {
+  waiting_you: "Chờ bạn duyệt lên GitHub",
+  running: "Đang lên GitHub",
+  failed: "Tạo dự án hỏng",
+};
+
+function OverviewPage(props: { overview: Loaded<OverviewResponse>; doctor: Loaded<DoctorReport>; link: LinkTo }) {
+  const { overview, doctor, link } = props;
   return (
     <>
       <section className="card">
         <div className="card-head">
           <h2>Dự án</h2>
+          <a className="button primary" href={NEW_PROJECT_PATH} onClick={link(NEW_PROJECT_PATH)}>
+            + Dự án mới
+          </a>
         </div>
         {overview.error ? (
-          <p className="error">Không đọc được danh sách dự án: {overview.error}</p>
+          <p className="error">Không đọc được danh sách dự án: {withCode(overview.error)}</p>
         ) : overview.data && overview.data.projects.length > 0 ? (
           <ul className="projects">
             {overview.data.projects.map((p) => (
               <li key={p.id}>
-                <span className="project-name">{p.name}</span>
+                <a className="project-name" href={projectPath(p.id)} onClick={link(projectPath(p.id))}>
+                  {p.name}
+                </a>
+                {p.setup && p.setup.status !== "done" && (
+                  <span className={p.setup.status === "failed" ? "pill bad" : "pill wait"}>{SETUP_TEXT[p.setup.status]}</span>
+                )}
+                {p.busy && <span className="pill run">Đang {p.busy}</span>}
                 <span className="muted">
-                  {p.surfaces} mặt · {p.tasks.running} đang chạy · {p.tasks.you} chờ bạn · {p.tasks.queue} trong hàng chờ
+                  {p.surfaces} khu vực · {p.tasks.running} đang chạy · {p.tasks.you} chờ bạn · {p.tasks.queue} trong hàng chờ
                 </span>
               </li>
             ))}
@@ -222,7 +313,13 @@ function OverviewPage(props: { overview: Loaded<OverviewResponse>; doctor: Loade
         ) : overview.loading ? (
           <p className="muted">Đang tải…</p>
         ) : (
-          <p className="empty">Nhà máy chưa có dự án nào. Wizard tạo dự án có từ M2.</p>
+          <p className="empty">
+            Nhà máy chưa có dự án nào.{" "}
+            <a href={NEW_PROJECT_PATH} onClick={link(NEW_PROJECT_PATH)}>
+              Tạo dự án đầu tiên
+            </a>
+            .
+          </p>
         )}
       </section>
 
@@ -236,7 +333,7 @@ function OverviewPage(props: { overview: Loaded<OverviewResponse>; doctor: Loade
             {doctor.loading ? "Đang kiểm tra…" : "Kiểm tra lại"}
           </button>
         </div>
-        {doctor.error && <p className="error">Không chạy được kiểm tra: {doctor.error}</p>}
+        {doctor.error && <p className="error">Không chạy được kiểm tra: {withCode(doctor.error)}</p>}
         {doctor.data && (
           <ul className="checks">
             {doctor.data.checks.map((c) => (
@@ -274,9 +371,34 @@ function Check({ check }: { check: CheckResult }) {
   );
 }
 
-/** Hiện phần nằm giữa hai dấu ` thành mã, giống đầu ra của `factory doctor`. */
-function withCode(text: string): ReactNode[] {
-  return text.split("`").map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part));
+/** Khu vực của dự án đang chọn, tải lại khi dự án thay đổi. */
+function SurfaceNav(props: { id: string; tick: number; link: LinkTo; path: string }) {
+  const [surfaces, setSurfaces] = useState<SurfaceRow[]>();
+  useEffect(() => {
+    let live = true;
+    api
+      .project(props.id)
+      .then((d) => live && setSurfaces(d.surfaces))
+      .catch(() => live && setSurfaces([]));
+    return () => {
+      live = false;
+    };
+  }, [props.id, props.tick]);
+  const page = projectPath(props.id);
+  const add = newSurfacePath(props.id);
+  return (
+    <>
+      {surfaces?.map((s) => (
+        <a key={s.id} href={`${page}#kv-${s.id}`} onClick={props.link(`${page}#kv-${s.id}`)} className="nav-item">
+          <span className="mono">{s.id}</span>
+          <span className="muted small-inline">{s.implicit ? "gốc repo" : s.location}</span>
+        </a>
+      ))}
+      <a href={add} onClick={props.link(add)} className="nav-item" aria-current={props.path === add ? "page" : undefined}>
+        + Thêm khu vực
+      </a>
+    </>
+  );
 }
 
 function NavGroup({ title, children }: { title: string; children: ReactNode }) {

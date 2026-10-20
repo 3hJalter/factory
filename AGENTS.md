@@ -13,6 +13,7 @@
 - Mọi tiến trình con chạy qua `runProcess` trong `core/src/proc.ts` để được chờ đúng PID và dọn tiến trình sót. Không gọi `child_process` trực tiếp ở chỗ khác.
 - Tên trạng thái, lý do chặn, cổng duyệt lấy theo `core/src/model.ts`, khớp với tài liệu thiết kế `may-trang-thai-ticket.md`.
 - Chuỗi hiển thị cho người dùng viết bằng tiếng Việt. Tên biến, hàm và commit message viết bằng tiếng Anh.
+- Thuật ngữ: trong code là `surface`, trên giao diện và tài liệu gọi là **khu vực** (không dùng "mặt").
 - Thêm test cạnh code: `core/test/*.test.ts`, `server/test/*.test.ts`, dùng `node:test`.
 
 ## Ranh giới

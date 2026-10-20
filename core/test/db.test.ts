@@ -1,18 +1,23 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { getOverview, openDb, recordEvent, schemaVersion } from "../src/index.ts";
 
 test("tạo schema và nạp 5 loại task của lõi", () => {
   const db = openDb(":memory:");
-  assert.equal(schemaVersion(db), 1);
+  assert.equal(schemaVersion(db), 2);
   const kinds = db.prepare("SELECT key FROM task_kind WHERE project_id = '' ORDER BY key").all() as { key: string }[];
   assert.deepEqual(kinds.map((k) => k.key), ["analyze", "fix", "make", "review", "test"]);
 });
 
 test("mở lại không chạy migration hai lần", () => {
-  const db = openDb(":memory:");
-  db.exec("PRAGMA user_version = 1");
-  assert.equal(schemaVersion(db), 1);
+  const file = join(mkdtempSync(join(tmpdir(), "factory-db-")), "f.db");
+  openDb(file).close();
+  const again = openDb(file);
+  assert.equal(schemaVersion(again), 2);
+  again.close();
 });
 
 test("trạng thái blocked bắt buộc có lý do và ngược lại", () => {

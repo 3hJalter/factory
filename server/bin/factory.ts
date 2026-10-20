@@ -17,7 +17,7 @@ const binPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(binPath), "..", "..");
 const version = (JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { version: string }).version;
 
-const HELP = `factory ${version}
+const HELP = (projectHelp: string) => `factory ${version}
 
 Cách dùng: factory <lệnh> [tuỳ chọn]
 
@@ -28,6 +28,8 @@ Cách dùng: factory <lệnh> [tuỳ chọn]
   serve [--port N]       Chạy server ngay trong terminal này (Ctrl+C để dừng)
   autostart on|off       Tự bật server khi đăng nhập Windows
   version                In phiên bản
+
+Dự án và khu vực:${projectHelp}
 `;
 
 function portArg(args: string[], fallback: number): number {
@@ -46,10 +48,21 @@ async function main(argv: string[]): Promise<number> {
 
   switch (command) {
     case "doctor": {
+      const projectAt = args.indexOf("--project");
       const report = await core.runDoctor();
       console.log(args.includes("--json") ? JSON.stringify(report, null, 2) : core.formatDoctor(report));
+      if (projectAt >= 0) {
+        const id = args[projectAt + 1];
+        if (!id) throw new Error("Dùng: factory doctor --project <dự án>");
+        const surfaces = await server.doctorProject(id);
+        return report.ok && surfaces === 0 ? 0 : 1;
+      }
       return report.ok ? 0 : 1;
     }
+    case "project":
+      return server.projectCommand(args);
+    case "surface":
+      return server.surfaceCommand(args);
     case "serve":
       await server.serve({ port: portArg(args, server.DEFAULT_PORT), webDir: join(repoRoot, "web", "dist"), version });
       return -1; // giữ tiến trình chạy
@@ -91,10 +104,10 @@ async function main(argv: string[]): Promise<number> {
     case undefined:
     case "help":
     case "--help":
-      console.log(HELP);
+      console.log(HELP(server.PROJECT_HELP));
       return 0;
     default:
-      console.error(`Không có lệnh "${command}".\n\n${HELP}`);
+      console.error(`Không có lệnh "${command}".\n\n${HELP(server.PROJECT_HELP)}`);
       return 2;
   }
 }
