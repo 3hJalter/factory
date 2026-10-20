@@ -1,22 +1,128 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DoctorReport, Overview } from "@factory/core";
+import type {
+  CommandResultRow,
+  DoctorReport,
+  MainRepoInspection,
+  OnboardingRow,
+  Overview,
+  ProjectRow,
+  ProjectSummary,
+  StartMode,
+  SurfaceCommands,
+  SurfaceInspection,
+  SurfaceRow,
+} from "@factory/core";
 
-export type { CheckResult, DoctorReport, Overview, ProjectSummary } from "@factory/core";
+export type {
+  CheckResult,
+  CommandResultRow,
+  DoctorReport,
+  Finding,
+  MainRepoInspection,
+  OnboardingRow,
+  Overview,
+  ProjectGate,
+  ProjectRow,
+  ProjectSummary,
+  ScanResult,
+  StartMode,
+  SurfaceCommands,
+  SurfaceInspection,
+  SurfaceRow,
+} from "@factory/core";
+
+export interface OverviewProject extends ProjectSummary {
+  /** Bước tạo dự án mới nhất (phần A). */
+  setup: { step: string; status: OnboardingRow["status"] } | null;
+  busy: string | null;
+}
 
 export interface OverviewResponse extends Overview {
+  projects: OverviewProject[];
   /** Số việc đang chờ bạn trên mọi dự án. */
   inbox: number;
 }
 
+export interface SurfaceDetail extends SurfaceRow {
+  onboarding: OnboardingRow | null;
+  baseline: CommandResultRow[];
+  doctor: CommandResultRow[];
+}
+
+export interface ProjectDetail {
+  project: ProjectRow;
+  setup: OnboardingRow | null;
+  surfaces: SurfaceDetail[];
+  /** Việc đang chạy nền của dự án, nếu có. */
+  busy: string | null;
+}
+
+export interface MainRepoInput {
+  mode: StartMode;
+  path: string;
+  url?: string;
+}
+
+export interface SurfaceInputBody {
+  id: string;
+  location: string;
+  commands?: SurfaceCommands;
+  pack?: string;
+}
+
+/** Lỗi từ API, kèm thân trả về (VD kết quả kiểm khi bị chặn). */
+export class ApiError extends Error {
+  status: number;
+  body: Record<string, unknown>;
+  constructor(status: number, message: string, body: Record<string, unknown>) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { accept: "application/json" } });
-  if (!res.ok) throw new Error(`${path} trả về ${res.status}`);
+  if (!res.ok) throw await toError(path, res);
   return (await res.json()) as T;
 }
+
+async function postJson<T>(path: string, body: unknown = {}): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await toError(path, res);
+  return (await res.json()) as T;
+}
+
+async function toError(path: string, res: Response): Promise<ApiError> {
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await res.json()) as Record<string, unknown>;
+  } catch {
+    // Không phải JSON.
+  }
+  const message = typeof body.error === "string" && body.error !== "not_found" ? body.error : `${path} trả về ${res.status}`;
+  return new ApiError(res.status, message, body);
+}
+
+const project = (id: string) => `/api/projects/${encodeURIComponent(id)}`;
 
 export const api = {
   overview: () => getJson<OverviewResponse>("/api/overview"),
   doctor: (refresh = false) => getJson<DoctorReport>(refresh ? "/api/doctor?refresh" : "/api/doctor"),
+  inspectProject: (input: MainRepoInput) => postJson<MainRepoInspection>("/api/projects/inspect", input),
+  createProject: (input: MainRepoInput & { name: string; mainCommands?: SurfaceCommands }) =>
+    postJson<{ project: ProjectRow; onboarding: OnboardingRow }>("/api/projects", input),
+  project: (id: string) => getJson<ProjectDetail>(project(id)),
+  publish: (id: string, repoName?: string) => postJson<ProjectDetail>(`${project(id)}/publish`, repoName ? { repoName } : {}),
+  reload: (id: string) => postJson<ProjectDetail>(`${project(id)}/reload`),
+  checkSurfaces: (id: string) => postJson<ProjectDetail>(`${project(id)}/check`),
+  inspectSurface: (id: string, input: SurfaceInputBody) => postJson<SurfaceInspection>(`${project(id)}/surfaces/inspect`, input),
+  addSurface: (id: string, input: SurfaceInputBody) => postJson<ProjectDetail>(`${project(id)}/surfaces`, input),
+  baseline: (id: string, surfaceId: string) => postJson<ProjectDetail>(`${project(id)}/surfaces/${encodeURIComponent(surfaceId)}/baseline`),
 };
 
 export interface Loaded<T> {

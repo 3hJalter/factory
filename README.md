@@ -6,14 +6,15 @@ Tài liệu thiết kế nằm trong thư mục dự án `vibe-code-toolkit/` (b
 
 ## Trạng thái
 
-Đang ở **M1: bộ khung**. Đã có:
+Đang ở **M2: dự án và khu vực**. Đã có:
 
-- Server chạy nền trên `localhost`, giao diện có thanh trên, sidebar và màn Tổng quan rỗng.
+- Server chạy nền trên `localhost`, giao diện có thanh trên, sidebar và màn Tổng quan.
 - Cơ sở dữ liệu SQLite với các bảng dự án, khu vực, loại task, task, lần chạy và sự kiện.
 - Lệnh `factory doctor` kiểm tra git, Node, gh, Claude Code, Codex.
 - Bộ chạy tiến trình chung: chờ đúng PID, dọn tiến trình con còn sót, có hết giờ và huỷ.
+- Tạo dự án từ thư mục có sẵn, clone, hoặc thư mục trống; duyệt bước đưa lên GitHub; thêm khu vực kiểu thư mục và chạy mốc chuẩn. Làm được trên giao diện hoặc bằng lệnh.
 
-Chưa có: tạo dự án và khu vực (M2), task và Kanban (M3), chạy agent (M4).
+Chưa có: task và Kanban (M3), chạy agent (M4).
 
 ## Cần có trên máy
 
@@ -54,6 +55,30 @@ Dữ liệu chạy (cơ sở dữ liệu, log) nằm ngoài repo: `%APPDATA%\fac
 
 Server chỉ nghe trên `127.0.0.1` và từ chối yêu cầu có Host hoặc Origin lạ, để trang web khác không gọi được API của nhà máy.
 
+## Tạo dự án và thêm khu vực
+
+Trên giao diện: **Tổng quan → + Dự án mới**, rồi **+ Thêm khu vực** trong trang dự án. Bằng lệnh:
+
+| Lệnh | Việc |
+|---|---|
+| `factory project add <thư mục> [--name TÊN]` | Kiểm thư mục rồi tạo dự án. Thêm `--new` cho thư mục trống, `--clone URL` để clone |
+| `factory project publish <dự án> [--repo TÊN]` | Duyệt bước lên GitHub: tạo repo private, hoặc đẩy nhánh `factory/onboarding` và mở PR |
+| `factory project list` / `show <dự án>` | Xem dự án, khu vực và mốc chuẩn |
+| `factory project reload <dự án>` | Đọc lại `.factory/project.yaml` sau khi bạn sửa tay |
+| `factory surface add <dự án> <id> <thư mục>` | Thêm khu vực rồi chạy mốc chuẩn |
+| `factory surface baseline <dự án> <id>` | Chạy lại mốc chuẩn của một khu vực |
+| `factory doctor --project <dự án>` | Chạy lệnh kiểm của từng khu vực ngay tại thư mục của nó |
+
+`project add` và `surface add` nhận thêm `--provision`, `--check`, `--test`: lệnh chuẩn bị, lệnh kiểm và lệnh test, chạy bằng shell của máy trong thư mục của khu vực. Ví dụ với chính repo này:
+
+```
+factory project add D:\Projects\factory --name factory --provision "npm ci" --check "npm run typecheck" --test "npm test"
+factory project publish factory
+factory surface add factory web D:\Projects\factory\web --check "npx tsc -p tsconfig.json"
+```
+
+Với repo đã có git, nhà máy thêm khung (`.factory/project.yaml`, `AGENTS.md`, `CLAUDE.md`, `GLOSSARY.md`…) trên nhánh `factory/onboarding` qua một worktree riêng, không đụng nhánh và thay đổi dở của bạn. Chưa có gì lên GitHub cho tới khi bạn chạy `publish` hoặc bấm duyệt. Mốc chuẩn chạy trên một bản sao sạch của nhánh chính, nằm ở `C:\f` trên Windows (đặt `FACTORY_WORKTREES` để đổi).
+
 ## Phát triển
 
 | Lệnh | Việc |
@@ -67,7 +92,7 @@ Cấu trúc:
 
 | Thư mục | Nội dung |
 |---|---|
-| `core/` | Mô hình, SQLite, đường dẫn, bộ chạy tiến trình, `doctor` |
+| `core/` | Mô hình, SQLite, đường dẫn, bộ chạy tiến trình, `doctor`, tạo dự án và khu vực |
 | `server/` | HTTP + WebSocket, chạy nền, lệnh `factory` |
 | `web/` | Giao diện React + Vite |
 | `pack-kit/` | Giao diện cho pack (dùng từ V1) |
