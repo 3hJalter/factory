@@ -11,6 +11,7 @@ import {
   type SurfaceRow,
 } from "./api.ts";
 import { NEW_PROJECT_PATH, newSurfacePath, NewProjectPage, NewSurfacePage, projectPath, ProjectPage, withCode, type LinkTo } from "./projects.tsx";
+import { boardPath, BoardPage, InboxPage, TaskPage } from "./tasks.tsx";
 
 interface Route {
   path: string;
@@ -48,19 +49,25 @@ const FACTORY_ROUTES: Route[] = [
 
 /** Màn chưa làm, kèm mốc sẽ có. */
 const COMING: Record<string, string> = {
-  "/hop-duyet": "Hộp duyệt có từ M4, khi task đầu tiên chạy xong và mở PR.",
   "/han-muc": "Thanh hạn mức và token từng task có từ M5, khi nhà máy đọc được hạn mức của Claude và Codex.",
   "/bo-nho": "Bộ nhớ có từ M8, khi gắn Engram.",
 };
 
 /** Màn của một dự án, đọc từ đường dẫn. */
-type ProjectView = { kind: "new-project" } | { kind: "project"; id: string } | { kind: "new-surface"; id: string };
+type ProjectView =
+  | { kind: "new-project" }
+  | { kind: "project"; id: string }
+  | { kind: "new-surface"; id: string }
+  | { kind: "board"; id: string }
+  | { kind: "task"; id: string; taskId: number };
 
 function projectView(path: string): ProjectView | undefined {
   if (path === NEW_PROJECT_PATH) return { kind: "new-project" };
-  const m = /^\/du-an\/([^/]+)(\/khu-vuc\/moi)?\/?$/.exec(path);
+  const m = /^\/du-an\/([^/]+)(\/khu-vuc\/moi|\/task(?:\/(\d+))?)?\/?$/.exec(path);
   if (!m) return undefined;
   const id = decodeURIComponent(m[1]!);
+  if (m[3]) return { kind: "task", id, taskId: Number(m[3]) };
+  if (m[2] === "/task") return { kind: "board", id };
   return m[2] ? { kind: "new-surface", id } : { kind: "project", id };
 }
 
@@ -114,7 +121,7 @@ export function App() {
           setLogs((all) => ({ ...all, [key]: [...(all[key] ?? []), message].slice(-MAX_LOG) }));
           return;
         }
-        if (e.type === "project.changed") setTick((t) => t + 1);
+        if (e.type === "project.changed" || e.type === "tasks.changed" || e.type === "settings.changed") setTick((t) => t + 1);
         reloadOverview();
       },
       [reloadOverview],
@@ -130,7 +137,11 @@ export function App() {
       ? { path, label: "", title: "Dự án mới", intro: "Chọn repo chính, nhà máy kiểm rồi thêm khung. Chưa có gì lên GitHub cho tới khi bạn duyệt." }
       : view.kind === "new-surface"
         ? { path, label: "", title: "Thêm khu vực", intro: `Một thư mục trong ${current?.name ?? view.id} mà agent sẽ làm việc, kèm lệnh để kiểm việc đó.` }
-        : { path, label: "", title: current?.name ?? view.id, intro: "Khu vực, mốc chuẩn và các bước đưa dự án vào nhà máy." }
+        : view.kind === "board"
+          ? { path, label: "", title: `Task · ${current?.name ?? view.id}`, intro: "Mỗi yêu cầu thành một task trên một hoặc vài khu vực. Cột theo trạng thái, làn theo khu vực." }
+          : view.kind === "task"
+            ? { path, label: "", title: `Task · ${current?.name ?? view.id}`, intro: "Nội dung sửa ở đây hay trên GitHub Issue đều được; trạng thái do nhà máy giữ." }
+            : { path, label: "", title: `Thiết lập · ${current?.name ?? view.id}`, intro: "Khu vực, mốc chuẩn và các bước đưa dự án vào nhà máy." }
     : (FACTORY_ROUTES.find((r) => r.path === path) ?? FACTORY_ROUTES[0]!);
   useEffect(() => {
     document.title = route.path === "/" ? "Factory" : `${route.title} · Factory`;
@@ -163,6 +174,17 @@ export function App() {
               </a>
             ))}
           </NavGroup>
+          {currentId && (
+            <NavGroup title={(current?.name ?? currentId).toUpperCase()}>
+              <a href={boardPath(currentId)} onClick={link(boardPath(currentId))} className="nav-item" aria-current={view?.kind === "board" || view?.kind === "task" ? "page" : undefined}>
+                Task (Kanban)
+                {(current?.tasks.you ?? 0) > 0 && <span className="badge">{current?.tasks.you}</span>}
+              </a>
+              <a href={projectPath(currentId)} onClick={link(projectPath(currentId))} className="nav-item" aria-current={view?.kind === "project" ? "page" : undefined}>
+                Thiết lập dự án
+              </a>
+            </NavGroup>
+          )}
           <NavGroup title="KHU VỰC">
             {currentId ? (
               <SurfaceNav id={currentId} tick={tick} link={link} path={path} />
@@ -173,10 +195,7 @@ export function App() {
             )}
           </NavGroup>
           <div className="sidebar-foot">
-            <label className="switch" title="Bật được khi có hàng đợi task (M3)">
-              <input type="checkbox" disabled />
-              <span>Tạm dừng toàn bộ</span>
-            </label>
+            <PauseSwitch paused={overview.data?.paused} onChange={reloadOverview} />
           </div>
         </nav>
         <main className="main">
@@ -191,6 +210,12 @@ export function App() {
               <ProjectPage key={view.id} id={view.id} tick={tick} log={logs[view.id] ?? []} link={link} />
             ) : view?.kind === "new-surface" ? (
               <NewSurfacePage key={view.id} id={view.id} go={go} />
+            ) : view?.kind === "board" ? (
+              <BoardPage key={view.id} id={view.id} tick={tick} link={link} />
+            ) : view?.kind === "task" ? (
+              <TaskPage key={view.taskId} id={view.id} taskId={view.taskId} tick={tick} link={link} />
+            ) : route.path === "/hop-duyet" ? (
+              <InboxPage tick={tick} link={link} />
             ) : route.path === "/" ? (
               <OverviewPage overview={overview} doctor={doctor} link={link} />
             ) : (
@@ -223,7 +248,7 @@ function TopBar(props: {
           aria-label="Chọn dự án"
           disabled={projects.length === 0}
           value={props.currentId ?? ""}
-          onChange={(e) => props.go(e.target.value ? projectPath(e.target.value) : "/")}
+          onChange={(e) => props.go(e.target.value ? boardPath(e.target.value) : "/")}
         >
           {projects.length === 0 ? (
             <option value="">Chưa có dự án</option>
@@ -297,11 +322,13 @@ function OverviewPage(props: { overview: Loaded<OverviewResponse>; doctor: Loade
           <ul className="projects">
             {overview.data.projects.map((p) => (
               <li key={p.id}>
-                <a className="project-name" href={projectPath(p.id)} onClick={link(projectPath(p.id))}>
+                <a className="project-name" href={boardPath(p.id)} onClick={link(boardPath(p.id))}>
                   {p.name}
                 </a>
                 {p.setup && p.setup.status !== "done" && (
-                  <span className={p.setup.status === "failed" ? "pill bad" : "pill wait"}>{SETUP_TEXT[p.setup.status]}</span>
+                  <a href={projectPath(p.id)} onClick={link(projectPath(p.id))} className={p.setup.status === "failed" ? "pill bad" : "pill wait"}>
+                    {SETUP_TEXT[p.setup.status]}
+                  </a>
                 )}
                 {p.busy && <span className="pill run">Đang {p.busy}</span>}
                 <span className="muted">
@@ -397,6 +424,33 @@ function SurfaceNav(props: { id: string; tick: number; link: LinkTo; path: strin
       <a href={add} onClick={props.link(add)} className="nav-item" aria-current={props.path === add ? "page" : undefined}>
         + Thêm khu vực
       </a>
+    </>
+  );
+}
+
+function PauseSwitch(props: { paused: boolean | undefined; onChange: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  return (
+    <>
+      <label className="switch" title="Không mở lần chạy mới ở dự án nào; lần chạy đang dở vẫn làm xong">
+        <input
+          type="checkbox"
+          checked={props.paused ?? false}
+          disabled={props.paused === undefined || busy}
+          onChange={(e) => {
+            setBusy(true);
+            setError(undefined);
+            api
+              .setPaused(e.target.checked)
+              .then(props.onChange)
+              .catch((err: unknown) => setError((err as Error).message))
+              .finally(() => setBusy(false));
+          }}
+        />
+        <span>Tạm dừng toàn bộ</span>
+      </label>
+      {error && <p className="error small-inline">{error}</p>}
     </>
   );
 }

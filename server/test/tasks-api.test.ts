@@ -114,6 +114,25 @@ test("bấm đồng bộ thì kéo Issue mới về", async () => {
   assert.equal(imported.status, "queued");
 });
 
+test("Issue thiếu label vào hộp duyệt, bạn nhận thì vào hàng chờ", async () => {
+  gh.open({ title: "Ý tưởng từ điện thoại" });
+  await call("POST", "/api/projects/p/sync", {});
+  let inbox: Res | undefined;
+  await until(async () => {
+    inbox = await call("GET", "/api/inbox");
+    return inbox.body.projects.length > 0;
+  });
+  const [project] = inbox!.body.projects;
+  assert.equal(project.id, "p");
+  assert.equal(project.tasks[0].status, "proposed");
+  assert.deepEqual(project.tasks[0].actions, ["accept", "reject", "cancel"]);
+  assert.equal((await call("GET", "/api/overview")).body.inbox, 1);
+
+  const accepted = await call("POST", `/api/tasks/${project.tasks[0].id}/actions/accept`, {});
+  assert.equal(accepted.body.task.status, "queued");
+  assert.deepEqual((await call("GET", "/api/inbox")).body.projects, []);
+});
+
 test("công tắc tạm dừng toàn bộ", async () => {
   assert.equal((await call("GET", "/api/settings")).body.paused, false);
   assert.equal((await call("POST", "/api/settings", { paused: "có" })).status, 400);

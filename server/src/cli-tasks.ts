@@ -23,9 +23,9 @@ export const TASK_HELP = `
   sync <dự án>           Đồng bộ task với GitHub Issues ngay`;
 
 const COLUMNS = [
-  ["you", "Chờ bạn"],
-  ["queue", "Hàng đợi"],
+  ["queue", "Hàng chờ"],
   ["running", "Đang chạy"],
+  ["you", "Chờ bạn"],
   ["done", "Xong"],
 ] as const;
 

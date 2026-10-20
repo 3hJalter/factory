@@ -6,15 +6,17 @@ Tài liệu thiết kế nằm trong thư mục dự án `vibe-code-toolkit/` (b
 
 ## Trạng thái
 
-Đang ở **M2: dự án và khu vực**. Đã có:
+Đang ở **M3: task và Kanban**. Đã có:
 
 - Server chạy nền trên `localhost`, giao diện có thanh trên, sidebar và màn Tổng quan.
 - Cơ sở dữ liệu SQLite với các bảng dự án, khu vực, loại task, task, lần chạy và sự kiện.
 - Lệnh `factory doctor` kiểm tra git, Node, gh, Claude Code, Codex.
 - Bộ chạy tiến trình chung: chờ đúng PID, dọn tiến trình con còn sót, có hết giờ và huỷ.
 - Tạo dự án từ thư mục có sẵn, clone, hoặc thư mục trống; duyệt bước đưa lên GitHub; thêm khu vực kiểu thư mục và chạy mốc chuẩn. Làm được trên giao diện hoặc bằng lệnh.
+- Task theo máy trạng thái trong tài liệu thiết kế, Kanban cột theo trạng thái và làn theo khu vực, Hộp duyệt cho task chờ bạn, công tắc **Tạm dừng toàn bộ**.
+- Đồng bộ hai chiều với GitHub Issues của repo chính.
 
-Chưa có: task và Kanban (M3), chạy agent (M4).
+Chưa có: chạy agent (M4).
 
 ## Cần có trên máy
 
@@ -79,6 +81,23 @@ factory surface add factory web D:\Projects\factory\web --check "npx tsc -p tsco
 
 Với repo đã có git, nhà máy thêm khung (`.factory/project.yaml`, `AGENTS.md`, `CLAUDE.md`, `GLOSSARY.md`…) trên nhánh `factory/onboarding` qua một worktree riêng, không đụng nhánh và thay đổi dở của bạn. Chưa có gì lên GitHub cho tới khi bạn chạy `publish` hoặc bấm duyệt. Mốc chuẩn chạy trên một bản sao sạch của nhánh chính, nằm ở `C:\f` trên Windows (đặt `FACTORY_WORKTREES` để đổi).
 
+## Task và GitHub Issues
+
+Trên giao diện: chọn dự án rồi **Task (Kanban) → + Task mới**. Bằng lệnh:
+
+| Lệnh | Việc |
+|---|---|
+| `factory task add <dự án> <tiêu đề> --kind LOẠI --surface KHU_VỰC` | Tạo task. Nhiều khu vực thì ngăn bằng dấu phẩy; `--body` cho mô tả, `--after 3,#12` cho task phải xong trước |
+| `factory task list <dự án>` | Xem task theo cột Kanban |
+| `factory task show <id>` | Xem mô tả, bình luận và lịch sử |
+| `factory sync <dự án>` | Đồng bộ với GitHub Issues ngay |
+
+Mỗi task là một Issue trên repo chính. Nội dung (tiêu đề, mô tả, bình luận, phụ thuộc "blocked by") sửa ở nhà máy hay trên GitHub đều được; cả hai nơi cùng sửa thì lấy bản trên GitHub. Trạng thái do nhà máy giữ và đẩy lên thành label `status:*`, `surface:*`, `kind:*`; sửa tay label `status:*` thì nhà máy đặt lại. Tạo Issue mới trên GitHub (VD từ điện thoại) với label `surface:*` và `kind:*` thì task vào hàng chờ; thiếu label thì task chờ bạn nhận trong Hộp duyệt. Đóng Issue trên GitHub là huỷ task.
+
+Server đồng bộ mỗi phút và ngay sau mỗi thay đổi trên giao diện. Dự án chưa duyệt bước lên GitHub thì nhà máy chỉ đọc Issues, task tạo tại chỗ chờ tới khi duyệt mới lên.
+
+Mang dự án sang máy khác: clone repo rồi chạy `factory project add <thư mục>`; task được dựng lại từ Issues ngay. Duyệt bước lên GitHub (`factory project publish`) thì nhà máy mới ghi ngược lên Issues.
+
 ## Phát triển
 
 | Lệnh | Việc |
@@ -92,7 +111,7 @@ Cấu trúc:
 
 | Thư mục | Nội dung |
 |---|---|
-| `core/` | Mô hình, SQLite, đường dẫn, bộ chạy tiến trình, `doctor`, tạo dự án và khu vực |
+| `core/` | Mô hình, SQLite, đường dẫn, bộ chạy tiến trình, `doctor`, tạo dự án và khu vực, task và đồng bộ Issues |
 | `server/` | HTTP + WebSocket, chạy nền, lệnh `factory` |
 | `web/` | Giao diện React + Vite |
 | `pack-kit/` | Giao diện cho pack (dùng từ V1) |

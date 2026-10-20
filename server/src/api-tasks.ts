@@ -9,6 +9,7 @@ import {
   getTask,
   isFactoryPaused,
   issueSyncState,
+  latestOnboarding,
   KANBAN_COLUMN,
   listComments,
   listProjects,
@@ -123,6 +124,22 @@ export function createTaskApi(deps: TaskApiDeps) {
     const parts = pathname.split("/").filter(Boolean).slice(1).map(decodeURIComponent); // bỏ "api"
     const method = req.method ?? "GET";
     try {
+      // /api/inbox: việc chờ bạn ở mọi dự án
+      if (parts[0] === "inbox" && parts.length === 1 && method === "GET") {
+        const projects = listProjects(db).map((p) => {
+          const setup = latestOnboarding(db, p.id);
+          return {
+            id: p.id,
+            name: p.name,
+            githubRepo: p.githubRepo,
+            setup: setup && setup.status !== "done" ? setup : null,
+            tasks: listTasks(db, p.id).filter((t) => KANBAN_COLUMN[t.status] === "you").map(view),
+          };
+        });
+        sendJson(res, 200, { projects: projects.filter((p) => p.setup || p.tasks.length > 0) });
+        return true;
+      }
+
       // /api/settings
       if (parts[0] === "settings" && parts.length === 1) {
         if (method === "POST") {
