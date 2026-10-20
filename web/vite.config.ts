@@ -8,12 +8,16 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/api": { target, changeOrigin: true },
+      "/api": {
+        target,
+        changeOrigin: true,
+        // Server chỉ nhận POST từ chính nó; đổi Origin của Vite sang địa chỉ server.
+        configure: (proxy) => proxy.on("proxyReq", (req) => req.hasHeader("origin") && req.setHeader("origin", target)),
+      },
       "/ws": {
         target,
         ws: true,
         changeOrigin: true,
-        // Server chỉ nhận WebSocket từ chính nó; đổi Origin của Vite sang địa chỉ server.
         configure: (proxy) => proxy.on("proxyReqWs", (req) => req.setHeader("origin", target)),
       },
     },

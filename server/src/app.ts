@@ -2,8 +2,20 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { extname, join, normalize, resolve, sep } from "node:path";
-import { getOverview, runDoctor, type Db, type DoctorReport } from "@factory/core";
+import {
+  countOnboardingWaiting,
+  factoryPaths,
+  getOverview,
+  latestOnboarding,
+  runDoctor,
+  type Db,
+  type DoctorReport,
+  type FactoryPaths,
+  type Runner,
+  type ShellRunner,
+} from "@factory/core";
 import { WebSocketServer, type WebSocket } from "ws";
+import { createProjectApi, sendJson } from "./api-projects.ts";
 
 export interface AppOptions {
   db: Db;
@@ -13,6 +25,10 @@ export interface AppOptions {
   host?: string;
   port?: number;
   doctor?: () => Promise<DoctorReport>;
+  /** Thư mục dữ liệu cho worktree, log chạy và pack; mặc định theo FACTORY_HOME. */
+  paths?: FactoryPaths;
+  run?: Runner;
+  shell?: ShellRunner;
 }
 
 export interface App {
@@ -61,6 +77,19 @@ export function createApp(opts: AppOptions): App {
   const allowedOrigin = (value: string | undefined) =>
     value === undefined || ["http://localhost", "http://127.0.0.1", "http://[::1]"].some((o) => value === `${o}:${boundPort}`);
 
+  const clients = new Set<WebSocket>();
+  const broadcast = (type: string, payload?: unknown) => {
+    const msg = JSON.stringify({ type, payload });
+    for (const ws of clients) if (ws.readyState === ws.OPEN) ws.send(msg);
+  };
+  const projects = createProjectApi({
+    db: opts.db,
+    paths: opts.paths ?? factoryPaths(),
+    ...(opts.run ? { run: opts.run } : {}),
+    ...(opts.shell ? { shell: opts.shell } : {}),
+    broadcast,
+  });
+
   const server = createServer((req, res) => {
     void handle(req, res).catch((err: unknown) => {
       sendJson(res, 500, { error: "internal", message: err instanceof Error ? err.message : String(err) });
@@ -76,6 +105,18 @@ export function createApp(opts: AppOptions): App {
 
     if (url.pathname.startsWith("/api/")) {
       if (req.method !== "GET") {
+        // Thay đổi chỉ nhận từ chính trang nhà máy (hoặc công cụ không gửi Origin, như curl).
+        if (req.method !== "POST") {
+          sendJson(res, 405, { error: "method_not_allowed" });
+          return;
+        }
+        if (!allowedOrigin(req.headers.origin)) {
+          sendJson(res, 403, { error: "forbidden_origin" });
+          return;
+        }
+      }
+      if (await projects.handle(req, res, url.pathname)) return;
+      if (req.method !== "GET") {
         sendJson(res, 405, { error: "method_not_allowed" });
         return;
       }
@@ -85,7 +126,11 @@ export function createApp(opts: AppOptions): App {
           return;
         case "/api/overview": {
           const overview = getOverview(opts.db);
-          sendJson(res, 200, { ...overview, inbox: overview.totals.you });
+          const withSetup = overview.projects.map((p) => {
+            const setup = latestOnboarding(opts.db, p.id);
+            return { ...p, setup: setup ? { step: setup.step, status: setup.status } : null, busy: projects.busy.get(p.id) ?? null };
+          });
+          sendJson(res, 200, { ...overview, projects: withSetup, inbox: overview.totals.you + countOnboardingWaiting(opts.db) });
           return;
         }
         case "/api/doctor":
@@ -124,7 +169,6 @@ export function createApp(opts: AppOptions): App {
   }
 
   const wss = new WebSocketServer({ noServer: true });
-  const clients = new Set<WebSocket>();
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname !== "/ws" || !allowedHost(req.headers.host) || !allowedOrigin(req.headers.origin)) {
@@ -154,14 +198,6 @@ export function createApp(opts: AppOptions): App {
       wss.close();
       await new Promise<void>((r) => server.close(() => r()));
     },
-    broadcast(type, payload) {
-      const msg = JSON.stringify({ type, payload });
-      for (const ws of clients) if (ws.readyState === ws.OPEN) ws.send(msg);
-    },
+    broadcast,
   };
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-  res.end(JSON.stringify(body));
 }
