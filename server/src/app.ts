@@ -6,6 +6,7 @@ import {
   countOnboardingWaiting,
   factoryPaths,
   getOverview,
+  isFactoryPaused,
   latestOnboarding,
   runDoctor,
   type Db,
@@ -16,6 +17,7 @@ import {
 } from "@factory/core";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createProjectApi, sendJson } from "./api-projects.ts";
+import { createTaskApi } from "./api-tasks.ts";
 
 export interface AppOptions {
   db: Db;
@@ -29,6 +31,9 @@ export interface AppOptions {
   paths?: FactoryPaths;
   run?: Runner;
   shell?: ShellRunner;
+  /** Chu kỳ đồng bộ GitHub Issues (ms); không đặt thì chỉ đồng bộ khi có thay đổi hoặc bấm tay. */
+  syncIntervalMs?: number;
+  syncDelayMs?: number;
 }
 
 export interface App {
@@ -82,12 +87,20 @@ export function createApp(opts: AppOptions): App {
     const msg = JSON.stringify({ type, payload });
     for (const ws of clients) if (ws.readyState === ws.OPEN) ws.send(msg);
   };
+  const tasks = createTaskApi({
+    db: opts.db,
+    ...(opts.run ? { run: opts.run } : {}),
+    broadcast,
+    ...(opts.syncIntervalMs ? { syncIntervalMs: opts.syncIntervalMs } : {}),
+    ...(opts.syncDelayMs !== undefined ? { syncDelayMs: opts.syncDelayMs } : {}),
+  });
   const projects = createProjectApi({
     db: opts.db,
     paths: opts.paths ?? factoryPaths(),
     ...(opts.run ? { run: opts.run } : {}),
     ...(opts.shell ? { shell: opts.shell } : {}),
     broadcast,
+    onPublished: (id) => void tasks.syncNow(id),
   });
 
   const server = createServer((req, res) => {
@@ -115,6 +128,7 @@ export function createApp(opts: AppOptions): App {
           return;
         }
       }
+      if (await tasks.handle(req, res, url.pathname)) return;
       if (await projects.handle(req, res, url.pathname)) return;
       if (req.method !== "GET") {
         sendJson(res, 405, { error: "method_not_allowed" });
@@ -130,7 +144,12 @@ export function createApp(opts: AppOptions): App {
             const setup = latestOnboarding(opts.db, p.id);
             return { ...p, setup: setup ? { step: setup.step, status: setup.status } : null, busy: projects.busy.get(p.id) ?? null };
           });
-          sendJson(res, 200, { ...overview, projects: withSetup, inbox: overview.totals.you + countOnboardingWaiting(opts.db) });
+          sendJson(res, 200, {
+            ...overview,
+            projects: withSetup,
+            inbox: overview.totals.you + countOnboardingWaiting(opts.db),
+            paused: isFactoryPaused(opts.db),
+          });
           return;
         }
         case "/api/doctor":
@@ -194,6 +213,8 @@ export function createApp(opts: AppOptions): App {
         });
       }),
     close: async () => {
+      tasks.close();
+      await tasks.idle();
       for (const ws of clients) ws.terminate();
       wss.close();
       await new Promise<void>((r) => server.close(() => r()));

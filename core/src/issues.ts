@@ -2,7 +2,7 @@ import type { Db } from "./db.ts";
 import { withImplicitMain } from "./config.ts";
 import { TASK_STATUSES, type TaskStatus } from "./model.ts";
 import { defaultRunner, type Runner } from "./git.ts";
-import { getProject, type ProjectRow } from "./projects.ts";
+import { getProject, latestOnboarding, type ProjectRow } from "./projects.ts";
 import { recordEvent } from "./store.ts";
 import {
   createTask,
@@ -36,6 +36,8 @@ export interface SyncContext {
 export interface SyncReport {
   /** Lý do không đồng bộ, VD dự án chưa lên GitHub. */
   skipped?: string;
+  /** Lý do chỉ kéo về mà không đẩy lên, VD bạn chưa duyệt bước lên GitHub. */
+  pushSkipped?: string;
   pulled: number;
   imported: number;
   pushed: number;
@@ -93,7 +95,10 @@ export async function syncIssues(ctx: SyncContext, projectId: string): Promise<S
   };
   try {
     await pull(ctx.db, gh, project, report, warn);
-    await push(ctx.db, gh, project, report, warn);
+    // Chưa duyệt bước lên GitHub (A3) thì chỉ đọc, không ghi gì lên repo.
+    const setup = latestOnboarding(ctx.db, projectId);
+    if (setup && setup.status !== "done") report.pushSkipped = "Chưa duyệt bước lên GitHub, task mới giữ tại chỗ";
+    else await push(ctx.db, gh, project, report, warn);
     ctx.db
       .prepare(
         `INSERT INTO issue_sync (project_id, last_ok_at, last_error) VALUES (?, ?, NULL)

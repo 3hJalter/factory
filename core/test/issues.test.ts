@@ -12,7 +12,9 @@ import {
   listComments,
   listTasks,
   openDb,
+  startOnboarding,
   syncIssues,
+  updateOnboarding,
   transition,
   type ProjectConfig,
 } from "../src/index.ts";
@@ -188,6 +190,22 @@ test("máy mới dựng lại task từ Issues", async () => {
   ]);
   assert.equal(listComments(other, findTaskByIssue(other, "p", 1)!.id)[0]!.body, "ghi chú");
   assert.equal(issueSyncState(other, "p").pending, 0, "dựng lại không đẩy gì ngược lên");
+});
+
+test("chưa duyệt bước lên GitHub thì chỉ kéo về, không ghi lên repo", async () => {
+  const { db, gh, sync } = setup();
+  const onboarding = startOnboarding(db, { projectId: "p", step: "A3", status: "waiting_you" });
+  gh.open({ title: "Có sẵn", labels: ["kind:make", "surface:web", "status:queued", "ready-for-agent"] });
+  createTask(db, "p", { title: "mới", kind: "make", surfaces: ["web"] });
+  const r = await sync();
+  assert.equal(r.imported, 1);
+  assert.match(r.pushSkipped!, /Chưa duyệt/);
+  assert.equal(gh.issues.size, 1);
+  assert.ok(gh.calls.every((c) => c.startsWith("GET")));
+
+  updateOnboarding(db, onboarding, { step: "A4", status: "done" });
+  await sync();
+  assert.equal(gh.issues.size, 2);
 });
 
 test("lỗi GitHub được ghi lại, task vẫn chờ đẩy", async () => {

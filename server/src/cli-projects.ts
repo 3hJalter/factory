@@ -15,6 +15,7 @@ import {
   publishProject,
   reloadProjectConfig,
   runBaseline,
+  syncIssues,
   type Finding,
   type OnboardingContext,
   type ProjectGate,
@@ -29,7 +30,7 @@ interface Parsed {
   flags: Map<string, string | true>;
 }
 
-const VALUE_FLAGS = new Set(["--name", "--clone", "--check", "--test", "--provision", "--pack", "--repo", "--project"]);
+const VALUE_FLAGS = new Set(["--name", "--clone", "--check", "--test", "--provision", "--pack", "--repo", "--project", "--kind", "--surface", "--body", "--after"]);
 
 export function parseArgs(args: string[]): Parsed {
   const positional: string[] = [];
@@ -48,7 +49,7 @@ export function parseArgs(args: string[]): Parsed {
   return { positional, flags };
 }
 
-const str = (p: Parsed, flag: string) => {
+export const str = (p: Parsed, flag: string) => {
   const v = p.flags.get(flag);
   return typeof v === "string" ? v : undefined;
 };
@@ -62,7 +63,7 @@ function commandsFrom(p: Parsed): SurfaceCommands | undefined {
   return Object.keys(c).length > 0 ? c : undefined;
 }
 
-function context(): OnboardingContext {
+export function context(): OnboardingContext {
   const paths = factoryPaths();
   mkdirSync(paths.home, { recursive: true });
   return { db: openDb(paths.db), paths, log: (m) => console.log(`  · ${m}`) };
@@ -116,6 +117,14 @@ export async function projectCommand(args: string[]): Promise<number> {
         printGate(gate);
         console.log(`\nDuyệt bằng: factory project publish ${project.id}${gate.action === "create" ? " [--repo TÊN]" : ""}`);
         console.log(`Thêm khu vực: factory surface add ${project.id} <id> <thư mục> --check "..." --test "..."`);
+        if (project.githubRepo) {
+          // Repo đã có task trên GitHub Issues (VD mang sang máy khác) thì dựng lại ngay.
+          const r = await syncIssues(ctx, project.id).catch((err: Error) => {
+            console.log(`\nChưa đọc được Issues: ${err.message}. Chạy lại: factory sync ${project.id}`);
+            return undefined;
+          });
+          if (r && r.imported > 0) console.log(`\nĐã nhận ${r.imported} task từ GitHub Issues.`);
+        }
         return 0;
       }
       case "publish": {
