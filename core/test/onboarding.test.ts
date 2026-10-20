@@ -14,6 +14,7 @@ import {
   listSurfaces,
   parseProjectConfig,
   publishProject,
+  reloadProjectConfig,
   showFile,
   defaultRunner,
 } from "../src/index.ts";
@@ -174,4 +175,18 @@ test("factory doctor --project chạy lệnh kiểm của từng khu vực tại
   await addSurface(ctx, project.id, { id: "web", location: "web", commands: { check: `${node} -e "process.exit(require('fs').existsSync('a.txt') ? 0 : 1)"` } });
   const checks = await checkSurfaces(ctx, project.id);
   assert.deepEqual(checks.map((c) => [c.surfaceId, c.result?.ok]), [["main", true], ["web", true]]);
+});
+
+test("đọc lại project.yaml sau khi sửa tay", async () => {
+  const dir = tempDir();
+  write(dir, "a.txt", "a");
+  const ctx = context(fakeGh().run);
+  const { project } = await createProject(ctx, { mode: "existing", path: dir, name: "X" });
+  write(dir, ".factory/project.yaml", "name: X\nmain:\n  commands: { check: echo moi }\nsurfaces:\n  - { id: docs, kind: folder, location: docs/ }\n");
+  reloadProjectConfig(ctx, project.id);
+  assert.deepEqual(listSurfaces(ctx.db, project.id).map((s) => s.id), ["main", "docs"]);
+  assert.equal(getProject(ctx.db, project.id)!.config.main!.commands!.check, "echo moi");
+  write(dir, ".factory/project.yaml", "name: X\nsurfaces:\n  - { id: Sai, location: x }\n");
+  assert.throws(() => reloadProjectConfig(ctx, project.id));
+  assert.deepEqual(listSurfaces(ctx.db, project.id).map((s) => s.id), ["main", "docs"]);
 });

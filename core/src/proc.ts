@@ -31,7 +31,7 @@ export interface RunOptions {
 }
 
 /**
- * Chạy một dòng lệnh do người dùng ghi (VD lệnh `check` của mặt) qua shell của hệ thống:
+ * Chạy một dòng lệnh do người dùng ghi (VD lệnh `check` của khu vực) qua shell của hệ thống:
  * `sh -c` trên Linux/macOS, `cmd.exe /d /s /c` trên Windows.
  */
 export function runShell(commandLine: string, opts: RunOptions = {}): Promise<ProcessResult> {

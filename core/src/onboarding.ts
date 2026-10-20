@@ -806,6 +806,19 @@ export async function checkSurfaces(ctx: OnboardingContext, projectId: string, o
   return checks;
 }
 
+/**
+ * Đọc lại `.factory/project.yaml` từ thư mục repo sau khi bạn sửa tay (đổi lệnh, thêm khu vực).
+ * Trả về undefined nếu bản trong thư mục chưa có file (ví dụ PR onboarding chưa merge).
+ */
+export function reloadProjectConfig(ctx: OnboardingContext, projectId: string): ProjectConfig | undefined {
+  const project = mustProject(ctx.db, projectId);
+  const config = readProjectConfig(project.repoPath);
+  if (!config) return undefined;
+  updateProject(ctx.db, projectId, { config });
+  say(ctx, `Đọc lại ${CONFIG_FILE}: ${config.surfaces.length} khu vực`);
+  return config;
+}
+
 function mustProject(db: Db, id: string): ProjectRow {
   const p = getProject(db, id);
   if (!p) throw new OnboardingError(`Không có dự án ${id}`);

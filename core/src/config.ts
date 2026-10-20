@@ -5,14 +5,14 @@ import { SURFACE_KINDS, TEST_MODES, type SurfaceKind } from "./model.ts";
 
 /**
  * Cấu hình dự án trong repo chính: `.factory/project.yaml` (mo-hinh-du-an.md mục 3.2).
- * Mặt ngầm `main` không ghi trong file; `withImplicitMain` thêm nó khi đọc.
+ * Khu vực ngầm `main` không ghi trong file; `withImplicitMain` thêm nó khi đọc.
  */
 
 export const CONFIG_DIR = ".factory";
 export const CONFIG_FILE = ".factory/project.yaml";
 export const MAIN_SURFACE = "main";
 
-/** Lệnh của mặt không có pack (luong-onboarding.md B6, B7). */
+/** Lệnh của khu vực không có pack (luong-onboarding.md B6, B7). */
 export interface SurfaceCommands {
   /** Chuẩn bị worktree mới, VD `npm ci`. */
   provision?: string;
@@ -50,7 +50,7 @@ export class ConfigError extends Error {}
 const ID_RE = /^[a-z][a-z0-9-]{0,29}$/;
 const COMMAND_KEYS = ["provision", "check", "test"] as const;
 
-/** `id` của mặt: chữ thường, số, gạch ngang, bắt đầu bằng chữ, tối đa 30 ký tự. */
+/** `id` của khu vực: chữ thường, số, gạch ngang, bắt đầu bằng chữ, tối đa 30 ký tự. */
 export function validSurfaceId(id: string): boolean {
   return ID_RE.test(id);
 }
@@ -86,20 +86,20 @@ export function validateProjectConfig(raw: unknown): ProjectConfig {
     if (!isObject(s)) throw new ConfigError(`surfaces[${i}] phải là một object`);
     const id = s.id;
     if (typeof id !== "string" || !validSurfaceId(id)) throw new ConfigError(`surfaces[${i}].id không hợp lệ: ${String(id)}`);
-    if (id === MAIN_SURFACE) throw new ConfigError("Mặt `main` có sẵn, không cần khai báo");
-    if (seen.has(id)) throw new ConfigError(`Mặt \`${id}\` khai báo hai lần`);
+    if (id === MAIN_SURFACE) throw new ConfigError("Khu vực `main` có sẵn, không cần khai báo");
+    if (seen.has(id)) throw new ConfigError(`Khu vực \`${id}\` khai báo hai lần`);
     seen.add(id);
     const kind = s.kind ?? "folder";
     if (typeof kind !== "string" || !(SURFACE_KINDS as readonly string[]).includes(kind)) {
-      throw new ConfigError(`Mặt \`${id}\`: kiểu không hợp lệ: ${String(kind)}`);
+      throw new ConfigError(`Khu vực \`${id}\`: kiểu không hợp lệ: ${String(kind)}`);
     }
-    if (typeof s.location !== "string" || s.location === "") throw new ConfigError(`Mặt \`${id}\`: thiếu \`location\``);
+    if (typeof s.location !== "string" || s.location === "") throw new ConfigError(`Khu vực \`${id}\`: thiếu \`location\``);
     const surface: SurfaceConfig = { id, kind: kind as SurfaceKind, location: s.location };
     if (s.pack !== undefined) {
-      if (typeof s.pack !== "string") throw new ConfigError(`Mặt \`${id}\`: \`pack\` phải là chuỗi`);
+      if (typeof s.pack !== "string") throw new ConfigError(`Khu vực \`${id}\`: \`pack\` phải là chuỗi`);
       surface.pack = s.pack;
     }
-    if (s.commands !== undefined) surface.commands = validateCommands(s.commands, `Mặt \`${id}\``);
+    if (s.commands !== undefined) surface.commands = validateCommands(s.commands, `Khu vực \`${id}\``);
     return surface;
   });
 
@@ -147,12 +147,12 @@ export function serializeProjectConfig(config: ProjectConfig): string {
   const { name, main, surfaces, ...rest } = config;
   const ordered = { name, ...(main ? { main } : {}), surfaces, ...rest };
   const header =
-    "# Cấu hình nhà máy cho dự án này. Mặt ngầm `main` (gốc repo) không cần khai báo.\n" +
+    "# Cấu hình nhà máy cho dự án này. Khu vực ngầm `main` (gốc repo) không cần khai báo.\n" +
     "# Mỗi khu vực: id, kind (folder), location (so với gốc repo), commands { provision, check, test }.\n";
   return header + stringify(ordered, { lineWidth: 0 });
 }
 
-/** Danh sách mặt kể cả mặt ngầm `main`. */
+/** Danh sách khu vực kể cả khu vực ngầm `main`. */
 export function withImplicitMain(config: ProjectConfig): (SurfaceConfig & { implicit: boolean })[] {
   const mainCommands = config.main?.commands;
   return [
