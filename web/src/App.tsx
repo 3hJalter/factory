@@ -40,7 +40,7 @@ const FACTORY_ROUTES: Route[] = [
     path: "/bo-nho",
     label: "Bộ nhớ",
     title: "Bộ nhớ",
-    intro: "Những gì agent ghi nhớ giữa các task, gắn theo dự án và mặt.",
+    intro: "Những gì agent ghi nhớ giữa các task, gắn theo dự án và khu vực.",
   },
 ];
 
@@ -113,8 +113,8 @@ export function App() {
               </a>
             ))}
           </NavGroup>
-          <NavGroup title="MẶT">
-            <p className="nav-empty">Chưa có dự án nào nên chưa có mặt. Tạo dự án và thêm mặt có từ M2.</p>
+          <NavGroup title="KHU VỰC">
+            <p className="nav-empty">Chưa có dự án nào nên chưa có khu vực. Tạo dự án và thêm khu vực có từ M2.</p>
           </NavGroup>
           <div className="sidebar-foot">
             <label className="switch" title="Bật được khi có hàng đợi task (M3)">
@@ -214,7 +214,7 @@ function OverviewPage(props: { overview: Loaded<OverviewResponse>; doctor: Loade
               <li key={p.id}>
                 <span className="project-name">{p.name}</span>
                 <span className="muted">
-                  {p.surfaces} mặt · {p.tasks.running} đang chạy · {p.tasks.you} chờ bạn · {p.tasks.queue} trong hàng chờ
+                  {p.surfaces} khu vực · {p.tasks.running} đang chạy · {p.tasks.you} chờ bạn · {p.tasks.queue} trong hàng chờ
                 </span>
               </li>
             ))}
