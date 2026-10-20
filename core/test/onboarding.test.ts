@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
@@ -189,4 +189,19 @@ test("đọc lại project.yaml sau khi sửa tay", async () => {
   write(dir, ".factory/project.yaml", "name: X\nsurfaces:\n  - { id: Sai, location: x }\n");
   assert.throws(() => reloadProjectConfig(ctx, project.id));
   assert.deepEqual(listSurfaces(ctx.db, project.id).map((s) => s.id), ["main", "docs"]);
+});
+
+test("đường dẫn khác dạng của cùng thư mục (symlink, tên ngắn 8.3 trên Windows) vẫn là gốc repo", async (t) => {
+  const { repo } = await repoWithRemote({ "web/a.txt": "a" });
+  const link = join(tempDir(), "lien-ket");
+  try {
+    symlinkSync(repo, link, "junction");
+  } catch {
+    t.skip("không tạo được liên kết thư mục");
+    return;
+  }
+  const ctx = context(fakeGh().run);
+  const { project } = await createProject(ctx, { mode: "existing", path: link, name: "Liên kết" });
+  const done = await addSurface(ctx, project.id, { id: "web", location: "web", commands: { check: `${node} -e "require('fs').accessSync('a.txt')"` } });
+  assert.equal(latestCommandResults(ctx.db, project.id, "web", "baseline")[0]!.ok, true, JSON.stringify(done.data));
 });

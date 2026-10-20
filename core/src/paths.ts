@@ -1,5 +1,6 @@
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 /**
  * Thư mục dữ liệu của nhà máy (SQLite, log, thư mục Run, file trạng thái server).
@@ -53,4 +54,19 @@ export function worktreeRoot(home: string, env: NodeJS.ProcessEnv = process.env,
   if (env.FACTORY_WORKTREES) return env.FACTORY_WORKTREES;
   if (platform === "win32" && !env.FACTORY_HOME) return "C:\\f";
   return join(home, "worktrees");
+}
+
+/**
+ * Dạng chuẩn của một đường dẫn tuyệt đối, để so sánh với đường dẫn git trả về: bỏ symlink,
+ * và trên Windows đổi tên ngắn 8.3 (`RUNNER~1`) và hoa thường theo đúng tên trên đĩa.
+ * Thư mục chưa có thì chuẩn hoá thư mục cha gần nhất đang có.
+ */
+export function canonicalPath(path: string): string {
+  const abs = resolve(path);
+  try {
+    return realpathSync.native(abs);
+  } catch {
+    const parent = dirname(abs);
+    return parent === abs ? abs : join(canonicalPath(parent), basename(abs));
+  }
 }

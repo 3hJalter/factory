@@ -1,3 +1,4 @@
+import { canonicalPath } from "./paths.ts";
 import { runProcess, type ProcessResult } from "./proc.ts";
 
 /** Chạy lệnh ngoài; tách ra để test thay được (VD giả `gh`). */
@@ -41,7 +42,7 @@ export interface GitInfo {
 export async function gitInfo(run: Runner, dir: string): Promise<GitInfo> {
   const top = await run("git", ["rev-parse", "--show-toplevel"], { cwd: dir });
   if (top.code !== 0) return { isRepo: false, changes: [], hasCommits: false };
-  const root = top.stdout.trim();
+  const root = canonicalPath(top.stdout.trim());
   const [branch, remote, status, head] = await Promise.all([
     run("git", ["symbolic-ref", "--short", "-q", "HEAD"], { cwd: root }),
     run("git", ["remote", "get-url", "origin"], { cwd: root }),

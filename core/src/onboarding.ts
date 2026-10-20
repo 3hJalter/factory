@@ -17,7 +17,7 @@ import type { Db } from "./db.ts";
 import { commitAll, defaultRunner, gitInfo, listRepoFiles, mustRun, withWorktree, type GitInfo, type Runner } from "./git.ts";
 import { CORE_TASK_KINDS, TASK_STATUSES } from "./model.ts";
 import { expandCommand, loadPack, resolveCommands, type Pack } from "./packs.ts";
-import type { FactoryPaths } from "./paths.ts";
+import { canonicalPath, type FactoryPaths } from "./paths.ts";
 import { runShell, type ProcessResult, type RunOptions } from "./proc.ts";
 import {
   findProjectByPath,
@@ -117,13 +117,14 @@ export async function inspectMainRepo(ctx: OnboardingContext, input: MainRepoInp
   const block = (message: string) => findings.push({ level: "block", message });
   const warn = (message: string) => findings.push({ level: "warn", message });
   const info = (message: string) => findings.push({ level: "info", message });
-  const path = input.path.trim();
-  const base = { mode: input.mode, path, suggestedName: suggestName(path, input.url) };
-
-  if (!isAbsolute(path)) {
+  const raw = input.path.trim();
+  const suggestedName = suggestName(raw, input.url);
+  if (!isAbsolute(raw)) {
     block("Cần đường dẫn đầy đủ, VD D:\\Projects\\cosplay-run");
-    return { ...base, findings, ok: false };
+    return { mode: input.mode, path: raw, suggestedName, findings, ok: false };
   }
+  const path = canonicalPath(raw);
+  const base = { mode: input.mode, path, suggestedName };
   if (findProjectByPath(ctx.db, path)) block("Thư mục này đã là một dự án của nhà máy");
 
   if (input.mode === "existing") {
@@ -238,7 +239,7 @@ export async function createProject(ctx: OnboardingContext, input: CreateProject
   const inspection = await inspectMainRepo(ctx, input);
   const blocker = inspection.findings.find((f) => f.level === "block");
   if (blocker) throw new OnboardingError(blocker.message);
-  const path = resolve(input.path);
+  const path = inspection.path;
 
   say(ctx, "A1: chuẩn bị repo chính");
   if (input.mode === "new") {
@@ -487,7 +488,7 @@ export async function inspectSurface(ctx: OnboardingContext, projectId: string, 
   if (!validSurfaceId(id)) block("Id khu vực chỉ gồm chữ thường, số và dấu gạch ngang, bắt đầu bằng chữ, tối đa 30 ký tự");
   if (id === MAIN_SURFACE || project.config.surfaces.some((s) => s.id === id)) block(`Dự án đã có khu vực \`${id}\``);
 
-  const absolutePath = resolve(project.repoPath, input.location.trim() || ".");
+  const absolutePath = canonicalPath(resolve(project.repoPath, input.location.trim() || "."));
   const location = toConfigLocation(project.repoPath, absolutePath);
   const base = { id, location, absolutePath, inMainRepo: isInside(project.repoPath, absolutePath) };
   if (!existsSync(absolutePath) || !statSync(absolutePath).isDirectory()) {
@@ -667,7 +668,7 @@ export async function runBaseline(ctx: OnboardingContext, projectId: string, sur
   const id = onboardingId ?? startOnboarding(ctx.db, { projectId, surfaceId, step: "B7" });
   updateOnboarding(ctx.db, id, { step: "B7", status: "running", error: null });
 
-  const absolutePath = resolve(project.repoPath, surface.location);
+  const absolutePath = canonicalPath(resolve(project.repoPath, surface.location));
   const git = await gitInfo(run, absolutePath);
   if (!git.isRepo) {
     const failed = updateOnboarding(ctx.db, id, { status: "failed", error: "Khu vực không nằm trong repo git" });
