@@ -116,8 +116,16 @@ function syncSurfaces(db: Db, projectId: string, config: ProjectConfig): void {
   }
   const keep = new Set(surfaces.map((s) => s.id));
   const existing = db.prepare("SELECT id FROM surface WHERE project_id = ?").all(projectId) as { id: string }[];
+  // Task gắn với khu vực bị bỏ khỏi cấu hình chuyển sang khu vực `main` để không mất task.
+  const move = db.prepare("UPDATE OR IGNORE task_surface SET surface_id = ? WHERE project_id = ? AND surface_id = ?");
+  const unlink = db.prepare("DELETE FROM task_surface WHERE project_id = ? AND surface_id = ?");
   const del = db.prepare("DELETE FROM surface WHERE project_id = ? AND id = ?");
-  for (const { id } of existing) if (!keep.has(id) && id !== MAIN_SURFACE) del.run(projectId, id);
+  for (const { id } of existing) {
+    if (keep.has(id) || id === MAIN_SURFACE) continue;
+    move.run(MAIN_SURFACE, projectId, id);
+    unlink.run(projectId, id);
+    del.run(projectId, id);
+  }
 }
 
 export function listSurfaces(db: Db, projectId: string): SurfaceRow[] {

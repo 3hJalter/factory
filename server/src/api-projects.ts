@@ -32,6 +32,8 @@ export interface ProjectApiDeps {
   run?: Runner;
   shell?: ShellRunner;
   broadcast: (type: string, payload?: unknown) => void;
+  /** Gọi sau khi bước lên GitHub xong, để đồng bộ task ngay. */
+  onPublished?: (projectId: string) => void;
 }
 
 export class HttpError extends Error {
@@ -115,7 +117,10 @@ export function createProjectApi(deps: ProjectApiDeps) {
           const body = await readBody(req);
           const repoName = optionalText(body.repoName);
           mustExist(id!);
-          startJob(id!, "lên GitHub", () => publishProject(ctx(id!), id!, repoName ? { repoName } : {}));
+          startJob(id!, "lên GitHub", async () => {
+            await publishProject(ctx(id!), id!, repoName ? { repoName } : {});
+            deps.onPublished?.(id!);
+          });
           sendJson(res, 202, detail(id!));
           return true;
         }
@@ -189,7 +194,7 @@ function routeKey(parts: string[]): string {
     .join("/");
 }
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+export async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   const type = String(req.headers["content-type"] ?? "");
   if (!type.startsWith("application/json")) throw new HttpError(415, "Cần content-type application/json");
   let size = 0;

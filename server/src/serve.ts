@@ -14,7 +14,7 @@ export async function serve(opts: ServeOptions): Promise<void> {
   const paths = factoryPaths();
   mkdirSync(paths.home, { recursive: true });
   const db = openDb(paths.db);
-  const app = createApp({ db, version: opts.version, webDir: opts.webDir, port: opts.port });
+  const app = createApp({ db, version: opts.version, webDir: opts.webDir, port: opts.port, syncIntervalMs: 60_000 });
 
   try {
     await app.listen();

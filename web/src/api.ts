@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CommandResultRow,
   DoctorReport,
+  IssueSyncState,
+  TaskComment,
+  TaskEvent,
+  TaskKindInfo,
+  TaskRow,
+  TaskStatus,
+  UserAction,
   MainRepoInspection,
   OnboardingRow,
   Overview,
@@ -29,6 +36,11 @@ export type {
   SurfaceCommands,
   SurfaceInspection,
   SurfaceRow,
+  TaskComment,
+  TaskEvent,
+  TaskKindInfo,
+  TaskStatus,
+  UserAction,
 } from "@factory/core";
 
 export interface OverviewProject extends ProjectSummary {
@@ -41,6 +53,51 @@ export interface OverviewResponse extends Overview {
   projects: OverviewProject[];
   /** Số việc đang chờ bạn trên mọi dự án. */
   inbox: number;
+  /** Công tắc "Tạm dừng toàn bộ". */
+  paused: boolean;
+}
+
+export type KanbanColumn = "queue" | "running" | "you" | "done";
+
+export interface TaskView extends TaskRow {
+  column: KanbanColumn;
+  actions: UserAction[];
+}
+
+export interface BoardResponse {
+  project: { id: string; name: string; githubRepo: string | null };
+  tasks: TaskView[];
+  kinds: TaskKindInfo[];
+  surfaces: { id: string; location: string; paused: boolean }[];
+  sync: IssueSyncState & { running: boolean };
+  paused: boolean;
+}
+
+export interface TaskLink {
+  id: number;
+  ref: string;
+  title: string;
+  status: TaskStatus;
+}
+
+export interface TaskDetail {
+  task: TaskView;
+  comments: TaskComment[];
+  history: TaskEvent[];
+  dependsOn: TaskLink[];
+  dependents: TaskLink[];
+}
+
+export interface NewTaskBody {
+  title: string;
+  body?: string;
+  kind: string;
+  surfaces: string[];
+  dependsOn?: number[];
+}
+
+export interface InboxResponse {
+  projects: { id: string; name: string; githubRepo: string | null; setup: OnboardingRow | null; tasks: TaskView[] }[];
 }
 
 export interface SurfaceDetail extends SurfaceRow {
@@ -127,6 +184,16 @@ export const api = {
   inspectSurface: (id: string, input: SurfaceInputBody) => postJson<SurfaceInspection>(`${project(id)}/surfaces/inspect`, input),
   addSurface: (id: string, input: SurfaceInputBody) => postJson<ProjectDetail>(`${project(id)}/surfaces`, input),
   baseline: (id: string, surfaceId: string) => postJson<ProjectDetail>(`${project(id)}/surfaces/${encodeURIComponent(surfaceId)}/baseline`),
+  board: (id: string) => getJson<BoardResponse>(`${project(id)}/tasks`),
+  createTask: (id: string, body: NewTaskBody) => postJson<TaskDetail>(`${project(id)}/tasks`, body),
+  sync: (id: string) => postJson<BoardResponse>(`${project(id)}/sync`),
+  task: (taskId: number) => getJson<TaskDetail>(`/api/tasks/${taskId}`),
+  editTask: (taskId: number, body: Partial<NewTaskBody>) => postJson<TaskDetail>(`/api/tasks/${taskId}`, body),
+  comment: (taskId: number, body: string) => postJson<TaskDetail>(`/api/tasks/${taskId}/comments`, { body }),
+  act: (taskId: number, action: UserAction, comment?: string) =>
+    postJson<TaskDetail>(`/api/tasks/${taskId}/actions/${action}`, comment ? { comment } : {}),
+  inbox: () => getJson<InboxResponse>("/api/inbox"),
+  setPaused: (paused: boolean) => postJson<{ paused: boolean }>("/api/settings", { paused }),
 };
 
 export interface Loaded<T> {

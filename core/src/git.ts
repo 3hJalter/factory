@@ -2,7 +2,7 @@ import { canonicalPath } from "./paths.ts";
 import { runProcess, type ProcessResult } from "./proc.ts";
 
 /** Chạy lệnh ngoài; tách ra để test thay được (VD giả `gh`). */
-export type Runner = (command: string, args: string[], opts?: { cwd?: string; input?: string; timeoutMs?: number }) => Promise<ProcessResult>;
+export type Runner = (command: string, args: string[], opts?: { cwd?: string; input?: string; timeoutMs?: number; maxOutput?: number }) => Promise<ProcessResult>;
 
 export const defaultRunner: Runner = (command, args, opts = {}) => runProcess(command, args, { timeoutMs: 120_000, ...opts });
 

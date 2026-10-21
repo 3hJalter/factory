@@ -163,6 +163,40 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX command_result_surface ON command_result(project_id, surface_id, id);
   `,
+  // M3: task, bình luận và đồng bộ với GitHub Issues (may-trang-thai-ticket.md mục 8).
+  `
+  ALTER TABLE task ADD COLUMN gate TEXT;                          -- cổng đang chờ ở proposed / waiting_*
+  ALTER TABLE task ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0;   -- tăng mỗi lần đổi tại chỗ; 0: Issue đã khớp
+  ALTER TABLE task ADD COLUMN synced TEXT;                        -- JSON: Issue lúc đồng bộ cuối, làm gốc so ba bên
+  ALTER TABLE task ADD COLUMN synced_at TEXT;
+  CREATE UNIQUE INDEX task_issue ON task(project_id, github_issue) WHERE github_issue IS NOT NULL;
+
+  CREATE TABLE task_comment (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE,
+    github_id  INTEGER UNIQUE,                 -- NULL khi chưa đẩy lên Issue
+    author     TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  CREATE INDEX task_comment_task ON task_comment(task_id, id);
+
+  -- Mốc đồng bộ Issues của từng dự án.
+  CREATE TABLE issue_sync (
+    project_id     TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
+    issues_since   TEXT,
+    comments_since TEXT,
+    last_ok_at     TEXT,
+    last_error     TEXT
+  );
+
+  -- Cài đặt chung của nhà máy, VD công tắc tạm dừng toàn bộ.
+  CREATE TABLE setting (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];
 
 export type Db = DatabaseSync;

@@ -17,7 +17,7 @@ const binPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(dirname(binPath), "..", "..");
 const version = (JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { version: string }).version;
 
-const HELP = (projectHelp: string) => `factory ${version}
+const HELP = (projectHelp: string, taskHelp: string) => `factory ${version}
 
 Cách dùng: factory <lệnh> [tuỳ chọn]
 
@@ -30,6 +30,8 @@ Cách dùng: factory <lệnh> [tuỳ chọn]
   version                In phiên bản
 
 Dự án và khu vực:${projectHelp}
+
+Task:${taskHelp}
 `;
 
 function portArg(args: string[], fallback: number): number {
@@ -63,6 +65,10 @@ async function main(argv: string[]): Promise<number> {
       return server.projectCommand(args);
     case "surface":
       return server.surfaceCommand(args);
+    case "task":
+      return server.taskCommand(args);
+    case "sync":
+      return server.syncCommand(args);
     case "serve":
       await server.serve({ port: portArg(args, server.DEFAULT_PORT), webDir: join(repoRoot, "web", "dist"), version });
       return -1; // giữ tiến trình chạy
@@ -104,10 +110,10 @@ async function main(argv: string[]): Promise<number> {
     case undefined:
     case "help":
     case "--help":
-      console.log(HELP(server.PROJECT_HELP));
+      console.log(HELP(server.PROJECT_HELP, server.TASK_HELP));
       return 0;
     default:
-      console.error(`Không có lệnh "${command}".\n\n${HELP(server.PROJECT_HELP)}`);
+      console.error(`Không có lệnh "${command}".\n\n${HELP(server.PROJECT_HELP, server.TASK_HELP)}`);
       return 2;
   }
 }
